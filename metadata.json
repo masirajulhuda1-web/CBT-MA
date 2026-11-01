@@ -1,0 +1,8 @@
+{
+  "name": "CBT MA Sirajul Huda Marindi",
+  "description": "Aplikasi Ujian Semester Online Berbasis Web & Google Apps Script untuk Madrasah Aliyah Sirajul Huda Marindi dengan proteksi anti-kecurangan, timer server, dan rekap otomatis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
