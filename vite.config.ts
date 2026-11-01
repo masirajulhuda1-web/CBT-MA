@@ -42,15 +42,21 @@ function cbtSharedBackendPlugin(): Plugin {
 
   const mergeById = (existing: any[] = [], incoming: any[] = [], deleted: Record<string, boolean> = {}, keyField = 'id') => {
     const map = new Map<string, any>();
-    for (const item of existing) {
+    const isItemDeleted = (item: any) => {
       const k = String(item?.[keyField] || '');
-      if (k && !deleted[k]) {
-        map.set(k, item);
+      if (!k || deleted[k]) return true;
+      if (item?.subjectId && deleted[String(item.subjectId)]) return true;
+      if (item?.subjectId && deleted[`subj_q:${String(item.subjectId)}`] && item?.questionText !== undefined) return true;
+      return false;
+    };
+    for (const item of existing) {
+      if (!isItemDeleted(item)) {
+        map.set(String(item[keyField]), item);
       }
     }
     for (const item of incoming) {
-      const k = String(item?.[keyField] || '');
-      if (k && !deleted[k]) {
+      if (!isItemDeleted(item)) {
+        const k = String(item[keyField]);
         const prev = map.get(k);
         map.set(k, prev ? { ...prev, ...item } : item);
       }
@@ -92,16 +98,29 @@ function cbtSharedBackendPlugin(): Plugin {
     const usernameToId = new Map<string, string>();
 
     const normUser = (u: string) => String(u || '').trim().toLowerCase();
+    const stripZero = (u: string) => {
+      const t = normUser(u);
+      return /^0+\d+$/.test(t) ? t.replace(/^0+/, '') : t;
+    };
+    const isDeletedUser = (u: any) => {
+      if (!u || !u.id) return true;
+      if (deleted[String(u.id)]) return true;
+      const nu = normUser(u.username);
+      const sz = stripZero(u.username);
+      if (nu && (deleted[`uname:${nu}`] || deleted[`USR-SISWA-${nu}`] || deleted[`USR-GURU-${nu}`])) return true;
+      if (sz && deleted[`uname:${sz}`]) return true;
+      return false;
+    };
 
     for (const u of existing) {
-      if (!u || !u.id || deleted[u.id]) continue;
+      if (isDeletedUser(u)) continue;
       const sanitized = { ...u, role: resolveMergedRole(u) };
       byId.set(String(sanitized.id), sanitized);
       if (sanitized.username) usernameToId.set(normUser(sanitized.username), String(sanitized.id));
     }
 
     for (const u of incoming) {
-      if (!u || !u.id || deleted[u.id]) continue;
+      if (isDeletedUser(u)) continue;
       const uKey = normUser(u.username);
       const existingIdByUsername = uKey ? usernameToId.get(uKey) : undefined;
       const targetId = existingIdByUsername || String(u.id);
@@ -122,6 +141,7 @@ function cbtSharedBackendPlugin(): Plugin {
         finalRole === 'siswa' && String(rawMerged.id).toUpperCase().startsWith('USR-GURU')
           ? `USR-SISWA-${String(rawMerged.username || '').trim()}`
           : String(rawMerged.id);
+      if (deleted[cleanId]) continue;
       const merged = { ...rawMerged, id: cleanId, role: finalRole };
       if (cleanId !== targetId) {
         byId.delete(targetId);
@@ -168,6 +188,11 @@ function cbtSharedBackendPlugin(): Plugin {
           ...(current.deletedIds || {}),
           ...(body.deletedIds || {}),
         };
+        if (Array.isArray(body.unmarkDeletedIds)) {
+          for (const k of body.unmarkDeletedIds) {
+            delete deletedIds[String(k)];
+          }
+        }
 
         const currentConfig = current.config || {};
         const incomingConfig = body.config || {};

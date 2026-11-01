@@ -243,14 +243,76 @@ class ApiService {
     localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(deleted));
   }
 
+  private markDeletedIds(ids: string[]) {
+    if (!ids || ids.length === 0) return;
+    const deleted = this.getDeletedIds();
+    for (const id of ids) {
+      if (id) deleted[id] = true;
+    }
+    localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(deleted));
+  }
+
+  private markDeletedUser(userId: string, username?: string) {
+    const deleted = this.getDeletedIds();
+    if (userId) deleted[userId] = true;
+    if (username) {
+      const norm = normalizeUsernameOrNisn(username);
+      const noZero = stripLeadingZeros(username);
+      if (norm) {
+        deleted[`uname:${norm}`] = true;
+        deleted[`USR-SISWA-${norm}`] = true;
+        deleted[`USR-GURU-${norm}`] = true;
+        deleted[`USR-SISWA-${username.trim()}`] = true;
+        deleted[`USR-GURU-${username.trim()}`] = true;
+      }
+      if (noZero) {
+        deleted[`uname:${noZero}`] = true;
+      }
+    }
+    localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(deleted));
+  }
+
+  private unmarkDeletedIds(keys: string[]) {
+    if (!keys || keys.length === 0) return;
+    const deleted = this.getDeletedIds();
+    let changed = false;
+    for (const k of keys) {
+      if (k && deleted[k]) {
+        delete deleted[k];
+        changed = true;
+      }
+    }
+    if (changed) {
+      localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(deleted));
+    }
+  }
+
+  private isUserDeleted(u: Partial<User> | null | undefined, deletedIds?: Record<string, boolean>): boolean {
+    if (!u || !u.id) return true;
+    const del = deletedIds || this.getDeletedIds();
+    if (del[u.id]) return true;
+    if (u.username) {
+      const norm = normalizeUsernameOrNisn(u.username);
+      const noZero = stripLeadingZeros(u.username);
+      if (norm && (del[`uname:${norm}`] || del[`USR-SISWA-${norm}`] || del[`USR-GURU-${norm}`])) return true;
+      if (noZero && del[`uname:${noZero}`]) return true;
+    }
+    return false;
+  }
+
   /**
    * Synchronize local state & GAS configuration with the shared server store
    * so any device (phone, tablet, laptop) automatically shares the same GAS URL and users.
    * Deduplicated & throttled so parallel read actions never cause a request storm.
    */
-  public async syncWithServer(force = false): Promise<void> {
-    if (!force && this.inFlightServerSync) {
-      return this.inFlightServerSync;
+  public async syncWithServer(force = false, unmarkKeys?: string[]): Promise<void> {
+    if (this.inFlightServerSync) {
+      if (!force) {
+        return this.inFlightServerSync;
+      }
+      try {
+        await this.inFlightServerSync;
+      } catch {}
     }
     if (!force && Date.now() - this.lastServerSyncAt < 1200) {
       return;
@@ -259,17 +321,35 @@ class ApiService {
     const doSync = async () => {
       try {
         const deletedIds = this.getDeletedIds();
-        const localUsers: User[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
-        const localClasses: ClassRoom[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
-        const localSubjects: Subject[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
-        const localQuestions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
+        const localUsers: User[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]') as User[]
+        ).filter((u) => !this.isUserDeleted(u, deletedIds));
+        const localClasses: ClassRoom[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]') as ClassRoom[]
+        ).filter((c) => c?.id && !deletedIds[c.id]);
+        const localSubjects: Subject[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]') as Subject[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
+        const localQuestions: Question[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]') as Question[]
+        ).filter(
+          (q) =>
+            q?.id &&
+            !deletedIds[q.id] &&
+            !deletedIds[q.subjectId] &&
+            !deletedIds[`subj_q:${q.subjectId}`]
+        );
         const localExams: Exam[] = (
           JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]') as Exam[]
-        ).map((ex) => ({
-          ...ex,
-          ...normalizeExamScheduleFields(ex),
-        }));
-        const localSessions: StudentExamSession[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]');
+        )
+          .filter((ex) => ex?.id && !deletedIds[ex.id] && !deletedIds[ex.subjectId])
+          .map((ex) => ({
+            ...ex,
+            ...normalizeExamScheduleFields(ex),
+          }));
+        const localSessions: StudentExamSession[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]') as StudentExamSession[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
         const localLogs: AuditLog[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.LOGS) || '[]');
 
         const controller = new AbortController();
@@ -289,6 +369,7 @@ class ApiService {
             sessions: localSessions,
             logs: localLogs,
             deletedIds,
+            unmarkDeletedIds: unmarkKeys,
           }),
         });
         clearTimeout(timer);
@@ -298,9 +379,19 @@ class ApiService {
         if (!json?.success || !json?.state) return;
 
         const state = json.state;
-        if (state.deletedIds) {
-          localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(state.deletedIds));
+        // Always merge with the latest local deletedIds so deletions made while the request was in-flight are never lost
+        const latestLocalDeleted = this.getDeletedIds();
+        const mergedDeletedIds: Record<string, boolean> = {
+          ...(state.deletedIds || {}),
+          ...latestLocalDeleted,
+        };
+        if (unmarkKeys && unmarkKeys.length > 0) {
+          for (const k of unmarkKeys) {
+            delete mergedDeletedIds[k];
+          }
         }
+        localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(mergedDeletedIds));
+
         if (state.config) {
           const mergedConfig: AppConfig = {
             ...this.config,
@@ -314,27 +405,44 @@ class ApiService {
           this.config = mergedConfig;
           localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(this.config));
         }
-        if (Array.isArray(state.users) && state.users.length > 0) {
-          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(state.users));
+        if (Array.isArray(state.users)) {
+          const cleanUsers = state.users.filter((u: User) => !this.isUserDeleted(u, mergedDeletedIds));
+          if (cleanUsers.length > 0) {
+            localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(cleanUsers));
+          }
         }
-        if (Array.isArray(state.classes) && state.classes.length > 0) {
-          localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(state.classes));
+        if (Array.isArray(state.classes)) {
+          const cleanClasses = state.classes.filter((c: ClassRoom) => c?.id && !mergedDeletedIds[c.id]);
+          localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(cleanClasses));
         }
-        if (Array.isArray(state.subjects) && state.subjects.length > 0) {
-          localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(state.subjects));
+        if (Array.isArray(state.subjects)) {
+          const cleanSubjects = state.subjects.filter((s: Subject) => s?.id && !mergedDeletedIds[s.id]);
+          localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(cleanSubjects));
         }
-        if (Array.isArray(state.questions) && state.questions.length > 0) {
-          localStorage.setItem(STORAGE_KEYS.QUESTIONS, JSON.stringify(state.questions));
+        if (Array.isArray(state.questions)) {
+          const cleanQuestions = state.questions.filter(
+            (q: Question) =>
+              q?.id &&
+              !mergedDeletedIds[q.id] &&
+              !mergedDeletedIds[q.subjectId] &&
+              !mergedDeletedIds[`subj_q:${q.subjectId}`]
+          );
+          localStorage.setItem(STORAGE_KEYS.QUESTIONS, JSON.stringify(cleanQuestions));
         }
-        if (Array.isArray(state.exams) && state.exams.length > 0) {
-          const normalizedStateExams = state.exams.map((ex: Exam) => ({
-            ...ex,
-            ...normalizeExamScheduleFields(ex),
-          }));
+        if (Array.isArray(state.exams)) {
+          const normalizedStateExams = state.exams
+            .filter((ex: Exam) => ex?.id && !mergedDeletedIds[ex.id] && !mergedDeletedIds[ex.subjectId])
+            .map((ex: Exam) => ({
+              ...ex,
+              ...normalizeExamScheduleFields(ex),
+            }));
           localStorage.setItem(STORAGE_KEYS.EXAMS, JSON.stringify(normalizedStateExams));
         }
         if (Array.isArray(state.sessions)) {
-          localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(state.sessions));
+          const cleanSessions = state.sessions.filter(
+            (s: StudentExamSession) => s?.id && !mergedDeletedIds[s.id]
+          );
+          localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(cleanSessions));
         }
         if (Array.isArray(state.logs) && state.logs.length > 0) {
           localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(state.logs));
@@ -470,30 +578,45 @@ class ApiService {
     const effectiveClassName =
       matchedCls?.name || exam.className || (exam.classId ? String(exam.classId) : 'Seluruh Kelas');
 
+    const deletedIds = this.getDeletedIds();
+    const validQuestions = allQuestions.filter(
+      (q) =>
+        q?.id &&
+        !deletedIds[q.id] &&
+        !deletedIds[q.subjectId] &&
+        !deletedIds[`subj_q:${q.subjectId}`]
+    );
+
     const isMockBuiltInQuestion = (q: Question) =>
       /^Q-FIQ-\d+$/i.test(String(q.id || '')) || /^Q-QHD-\d+$/i.test(String(q.id || ''));
 
-    const uploadedQuestions = allQuestions.filter((q) => !isMockBuiltInQuestion(q));
-    const questionPool = uploadedQuestions.length > 0 ? uploadedQuestions : allQuestions;
+    const uploadedQuestions = validQuestions.filter((q) => !isMockBuiltInQuestion(q));
+    const questionPool = uploadedQuestions.length > 0 ? uploadedQuestions : validQuestions;
 
     let subjectQuestions = questionPool.filter(
       (q) => q.subjectId === effectiveSubjectId || (rawSubjId && q.subjectId === rawSubjId)
     );
 
     // If no questions matched by ID (e.g. questions were uploaded under an orphaned subject ID or single subject bank)
-    if (subjectQuestions.length === 0 && questionPool.length > 0) {
+    // Only consider non-mock questions whose subjectId was NOT explicitly deleted
+    if (subjectQuestions.length === 0 && uploadedQuestions.length > 0) {
       const validSubjIds = new Set(allSubjects.map((s) => s.id));
-      const orphanedQuestions = questionPool.filter((q) => !validSubjIds.has(q.subjectId));
+      const orphanedQuestions = uploadedQuestions.filter(
+        (q) =>
+          !validSubjIds.has(q.subjectId) &&
+          !deletedIds[q.subjectId] &&
+          !deletedIds[`subj_q:${q.subjectId}`]
+      );
       if (orphanedQuestions.length > 0) {
         subjectQuestions = orphanedQuestions;
-      } else if (allSubjects.length <= 1) {
-        subjectQuestions = questionPool;
+      } else if (allSubjects.length <= 1 && !deletedIds[`subj_q:${effectiveSubjectId}`]) {
+        subjectQuestions = uploadedQuestions;
       }
     }
 
-    // Fallback to allQuestions if questionPool yielded 0
-    if (subjectQuestions.length === 0 && allQuestions.length > 0) {
-      subjectQuestions = allQuestions.filter(
+    // Fallback to validQuestions if questionPool yielded 0
+    if (subjectQuestions.length === 0 && validQuestions.length > 0) {
+      subjectQuestions = validQuestions.filter(
         (q) => q.subjectId === effectiveSubjectId || (rawSubjId && q.subjectId === rawSubjId)
       );
     }
@@ -526,6 +649,7 @@ class ApiService {
 
     const studentUsernamesFromSheet = new Set<string>();
     for (const u of localUsers) {
+      if (this.isUserDeleted(u, deletedIds)) continue;
       if (resolveUserRole(u) === 'siswa' && u.username) {
         studentUsernamesFromSheet.add(normalizeUsernameOrNisn(u.username));
         studentUsernamesFromSheet.add(stripLeadingZeros(u.username));
@@ -535,6 +659,8 @@ class ApiService {
       for (const s of rawStudents) {
         if (!s || (!s.username && !s.id)) continue;
         const cleanUname = String(s.username ?? '').trim();
+        const rawId = String(s.id || `USR-SISWA-${cleanUname}`);
+        if (this.isUserDeleted({ id: rawId, username: cleanUname }, deletedIds)) continue;
         if (cleanUname) {
           studentUsernamesFromSheet.add(normalizeUsernameOrNisn(cleanUname));
           studentUsernamesFromSheet.add(stripLeadingZeros(cleanUname));
@@ -547,6 +673,7 @@ class ApiService {
         if (!t || (!t.username && !t.id)) continue;
         const cleanUname = String(t.username ?? '').trim();
         const tId = String(t.id || `USR-GURU-${cleanUname}`);
+        if (this.isUserDeleted({ id: tId, username: cleanUname }, deletedIds)) continue;
         const tClassId = String(t.classId || '').trim();
         const isActuallyStudent =
           tId.toUpperCase().startsWith('USR-SISWA') ||
@@ -584,6 +711,7 @@ class ApiService {
         if (!s || (!s.username && !s.id)) continue;
         const cleanUname = String(s.username ?? '').trim();
         const rawId = String(s.id || `USR-SISWA-${cleanUname}`);
+        if (this.isUserDeleted({ id: rawId, username: cleanUname }, deletedIds)) continue;
         incomingSheetUsers.push({
           id: rawId.toUpperCase().startsWith('USR-GURU') ? `USR-SISWA-${cleanUname}` : rawId,
           username: cleanUname,
@@ -596,63 +724,64 @@ class ApiService {
       }
     }
 
-    if (incomingSheetUsers.length > 0) {
-      const mergedMap = new Map<string, User>();
-      for (const u of localUsers) {
-        if (u && u.id && !deletedIds[u.id]) {
-          mergedMap.set(u.id, { ...u, role: resolveUserRole(u) });
-        }
+    const mergedMap = new Map<string, User>();
+    for (const u of localUsers) {
+      if (!this.isUserDeleted(u, deletedIds)) {
+        mergedMap.set(u.id, { ...u, role: resolveUserRole(u) });
       }
-
-      for (const sheetU of incomingSheetUsers) {
-        if (deletedIds[sheetU.id]) continue;
-        let existingEntry: User | undefined = mergedMap.get(sheetU.id);
-        if (!existingEntry && sheetU.username) {
-          for (const candidate of mergedMap.values()) {
-            if (
-              normalizeUsernameOrNisn(candidate.username) === normalizeUsernameOrNisn(sheetU.username) ||
-              (stripLeadingZeros(candidate.username) &&
-                stripLeadingZeros(candidate.username) === stripLeadingZeros(sheetU.username))
-            ) {
-              existingEntry = candidate;
-              break;
-            }
-          }
-        }
-
-        if (existingEntry) {
-          const preserveStudentRole =
-            resolveUserRole(existingEntry) === 'siswa' &&
-            (Boolean(existingEntry.classId) || String(existingEntry.id).toUpperCase().startsWith('USR-SISWA'));
-          const effectiveRole = preserveStudentRole ? 'siswa' : resolveUserRole(sheetU);
-          const effectiveId =
-            effectiveRole === 'siswa' && String(sheetU.id).toUpperCase().startsWith('USR-GURU')
-              ? existingEntry.id.toUpperCase().startsWith('USR-SISWA')
-                ? existingEntry.id
-                : `USR-SISWA-${sheetU.username}`
-              : sheetU.id;
-
-          mergedMap.delete(existingEntry.id);
-          mergedMap.set(effectiveId, {
-            ...existingEntry,
-            ...sheetU,
-            id: effectiveId,
-            role: effectiveRole,
-            classId: sheetU.classId || existingEntry.classId || '',
-            passwordHash: existingEntry.passwordHash,
-            salt: existingEntry.salt,
-          });
-        } else {
-          mergedMap.set(sheetU.id, { ...sheetU, role: resolveUserRole(sheetU) });
-        }
-      }
-
-      const finalUsers = Array.from(mergedMap.values());
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(finalUsers));
-      return finalUsers;
     }
 
-    return localUsers.filter((u) => u && u.id && !deletedIds[u.id]);
+    for (const sheetU of incomingSheetUsers) {
+      if (this.isUserDeleted(sheetU, deletedIds)) continue;
+      let existingEntry: User | undefined = mergedMap.get(sheetU.id);
+      if (!existingEntry && sheetU.username) {
+        for (const candidate of mergedMap.values()) {
+          if (
+            normalizeUsernameOrNisn(candidate.username) === normalizeUsernameOrNisn(sheetU.username) ||
+            (stripLeadingZeros(candidate.username) &&
+              stripLeadingZeros(candidate.username) === stripLeadingZeros(sheetU.username))
+          ) {
+            existingEntry = candidate;
+            break;
+          }
+        }
+      }
+
+      if (existingEntry) {
+        const preserveStudentRole =
+          resolveUserRole(existingEntry) === 'siswa' &&
+          (Boolean(existingEntry.classId) || String(existingEntry.id).toUpperCase().startsWith('USR-SISWA'));
+        const effectiveRole = preserveStudentRole ? 'siswa' : resolveUserRole(sheetU);
+        const effectiveId =
+          effectiveRole === 'siswa' && String(sheetU.id).toUpperCase().startsWith('USR-GURU')
+            ? existingEntry.id.toUpperCase().startsWith('USR-SISWA')
+              ? existingEntry.id
+              : `USR-SISWA-${sheetU.username}`
+            : sheetU.id;
+
+        if (this.isUserDeleted({ id: effectiveId, username: sheetU.username }, deletedIds)) {
+          mergedMap.delete(existingEntry.id);
+          continue;
+        }
+
+        mergedMap.delete(existingEntry.id);
+        mergedMap.set(effectiveId, {
+          ...existingEntry,
+          ...sheetU,
+          id: effectiveId,
+          role: effectiveRole,
+          classId: sheetU.classId || existingEntry.classId || '',
+          passwordHash: existingEntry.passwordHash,
+          salt: existingEntry.salt,
+        });
+      } else {
+        mergedMap.set(sheetU.id, { ...sheetU, role: resolveUserRole(sheetU) });
+      }
+    }
+
+    const finalUsers = Array.from(mergedMap.values());
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(finalUsers));
+    return finalUsers;
   }
 
   /**
@@ -689,7 +818,7 @@ class ApiService {
         const deletedIds = this.getDeletedIds();
         this.mergeSheetUsersIntoLocal(stRes?.students, tchRes?.teachers);
 
-        if (clsRes?.success && Array.isArray(clsRes.classes) && clsRes.classes.length > 0) {
+        if (clsRes?.success && Array.isArray(clsRes.classes)) {
           const sheetClasses: ClassRoom[] = clsRes.classes
             .filter((c: any) => c?.id && !deletedIds[c.id])
             .map((c: any) => ({
@@ -700,12 +829,10 @@ class ApiService {
                 : 'X') as 'X' | 'XI' | 'XII',
               description: String(c.description || ''),
             }));
-          if (sheetClasses.length > 0) {
-            localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(sheetClasses));
-          }
+          localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(sheetClasses));
         }
 
-        if (subjRes?.success && Array.isArray(subjRes.subjects) && subjRes.subjects.length > 0) {
+        if (subjRes?.success && Array.isArray(subjRes.subjects)) {
           const sheetSubjects: Subject[] = subjRes.subjects
             .filter((s: any) => s?.id && !deletedIds[s.id])
             .map((s: any) => ({
@@ -715,21 +842,27 @@ class ApiService {
               teacherId: String(s.teacherId || s.teacherName || ''),
               teacherName: String(s.teacherName || s.teacherId || ''),
             }));
-          if (sheetSubjects.length > 0) {
-            localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(sheetSubjects));
-          }
+          localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(sheetSubjects));
         }
 
         const activeSubjects: Subject[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
         const activeClasses: ClassRoom[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
 
-        if (qRes?.success && Array.isArray(qRes.questions) && qRes.questions.length > 0) {
+        if (qRes?.success && Array.isArray(qRes.questions)) {
           const validSubjIds = new Set(activeSubjects.map((s) => s.id));
           const sheetQuestions: Question[] = qRes.questions
-            .filter((q: any) => q?.id && !deletedIds[q.id])
+            .filter(
+              (q: any) =>
+                q?.id &&
+                !deletedIds[q.id] &&
+                !deletedIds[String(q.subjectId || '')] &&
+                !deletedIds[`subj_q:${String(q.subjectId || '')}`]
+            )
             .map((q: any) => {
               let sId = String(q.subjectId || '');
-              if (activeSubjects.length > 0 && !validSubjIds.has(sId)) {
+              const isMockQuestion =
+                /^Q-FIQ-\d+$/i.test(String(q.id || '')) || /^Q-QHD-\d+$/i.test(String(q.id || ''));
+              if (activeSubjects.length > 0 && !validSubjIds.has(sId) && !deletedIds[sId] && !isMockQuestion) {
                 sId = activeSubjects[0].id;
               }
               const rawKey = String(q.correctAnswer || 'A').trim().toUpperCase();
@@ -751,21 +884,20 @@ class ApiService {
                 points: Number(q.points) || 10,
                 createdBy: String(q.createdBy || 'Guru'),
               };
-            });
-          if (sheetQuestions.length > 0) {
-            localStorage.setItem(STORAGE_KEYS.QUESTIONS, JSON.stringify(sheetQuestions));
-          }
+            })
+            .filter((q) => !deletedIds[q.subjectId] && !deletedIds[`subj_q:${q.subjectId}`]);
+          localStorage.setItem(STORAGE_KEYS.QUESTIONS, JSON.stringify(sheetQuestions));
         }
 
         const activeQuestions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
 
-        if (exRes?.success && Array.isArray(exRes.exams) && exRes.exams.length > 0) {
+        if (exRes?.success && Array.isArray(exRes.exams)) {
           const localExams: Exam[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]');
           const localMap = new Map<string, Exam>(localExams.map((e) => [e.id, e]));
           const sheetExams: Exam[] = [];
 
           for (const e of exRes.exams) {
-            if (!e?.id || deletedIds[e.id]) continue;
+            if (!e?.id || deletedIds[e.id] || deletedIds[String(e.subjectId || '')]) continue;
             const prev = localMap.get(String(e.id));
             const normalizedSched = normalizeExamScheduleFields(e, prev);
             const resolved = this.resolveExamAndQuestions(
@@ -789,18 +921,9 @@ class ApiService {
               endWindow: normalizedSched.endWindow,
             };
             sheetExams.push(mergedExam);
-
-            if (
-              Number(e.totalQuestions) !== resolved.effectiveTotalQuestions ||
-              String(e.subjectId) !== resolved.effectiveSubjectId
-            ) {
-              void this.callGasEndpoint('saveExam', mergedExam as unknown as Record<string, unknown>, adminToken, targetUrl);
-            }
           }
 
-          if (sheetExams.length > 0) {
-            localStorage.setItem(STORAGE_KEYS.EXAMS, JSON.stringify(sheetExams));
-          }
+          localStorage.setItem(STORAGE_KEYS.EXAMS, JSON.stringify(sheetExams));
         }
 
         this.lastGasSyncAt = Date.now();
@@ -823,6 +946,7 @@ class ApiService {
     if (!targetUrl) return { success: false, syncedUsers: 0 };
 
     const bootstrapToken = this.getStoredToken() || generateSessionToken('USR-ADMIN-1', 'admin');
+    const deletedIds = this.getDeletedIds();
 
     // First pull existing students & teachers from GAS so we don't duplicate
     const [stRes, tchRes] = await Promise.all([
@@ -842,6 +966,7 @@ class ApiService {
     let syncedCount = 0;
 
     for (const u of localUsers) {
+      if (this.isUserDeleted(u, deletedIds)) continue;
       const normKey = stripLeadingZeros(u.username || '');
       if (!normKey || existingUsernames.has(normKey)) continue;
       if (u.role === 'siswa') {
@@ -879,31 +1004,70 @@ class ApiService {
   }
 
   private initStorageIfEmpty() {
-    if (!localStorage.getItem(STORAGE_KEYS.CLASSES)) {
-      localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(INITIAL_CLASSES));
+    const deletedIds = this.getDeletedIds();
+
+    const storedClasses = localStorage.getItem(STORAGE_KEYS.CLASSES);
+    if (!storedClasses) {
+      localStorage.setItem(
+        STORAGE_KEYS.CLASSES,
+        JSON.stringify(INITIAL_CLASSES.filter((c) => !deletedIds[c.id]))
+      );
+    } else {
+      try {
+        const parsed: ClassRoom[] = JSON.parse(storedClasses);
+        const filtered = parsed.filter((c) => c?.id && !deletedIds[c.id]);
+        if (filtered.length !== parsed.length) {
+          localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(filtered));
+        }
+      } catch {}
     }
-    if (!localStorage.getItem(STORAGE_KEYS.SUBJECTS)) {
-      localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(INITIAL_SUBJECTS));
+
+    const storedSubjects = localStorage.getItem(STORAGE_KEYS.SUBJECTS);
+    if (!storedSubjects) {
+      localStorage.setItem(
+        STORAGE_KEYS.SUBJECTS,
+        JSON.stringify(INITIAL_SUBJECTS.filter((s) => !deletedIds[s.id]))
+      );
+    } else {
+      try {
+        const parsed: Subject[] = JSON.parse(storedSubjects);
+        const filtered = parsed.filter((s) => s?.id && !deletedIds[s.id]);
+        if (filtered.length !== parsed.length) {
+          localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(filtered));
+        }
+      } catch {}
     }
+
     const storedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
     if (!storedUsers) {
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_USERS));
+      localStorage.setItem(
+        STORAGE_KEYS.USERS,
+        JSON.stringify(INITIAL_USERS.filter((u) => !this.isUserDeleted(u, deletedIds)))
+      );
     } else {
-      // Heal stored users: ensure initial users exist and any account with classId or USR-SISWA is 'siswa'
       try {
-        const parsed: User[] = JSON.parse(storedUsers);
+        let parsed: User[] = JSON.parse(storedUsers);
         const adminUser = parsed.find((u) => u.username === 'admin_sirajulhuda');
         if (adminUser && adminUser.passwordHash?.startsWith('c7c59ec5')) {
-          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_USERS));
+          localStorage.setItem(
+            STORAGE_KEYS.USERS,
+            JSON.stringify(INITIAL_USERS.filter((u) => !this.isUserDeleted(u, deletedIds)))
+          );
         } else {
-          const deletedIds = this.getDeletedIds();
           let modified = false;
-          // Restore default initial users if they were not explicitly deleted
-          for (const initU of INITIAL_USERS) {
-            if (!deletedIds[initU.id] && !parsed.some((u) => u.id === initU.id || u.username === initU.username)) {
-              parsed.push(initU);
-              modified = true;
-            }
+          const beforeLen = parsed.length;
+          parsed = parsed.filter((u) => !this.isUserDeleted(u, deletedIds));
+          if (parsed.length !== beforeLen) {
+            modified = true;
+          }
+          // Always ensure the primary admin account exists so Admin is never locked out
+          const defaultAdmin = INITIAL_USERS.find((u) => u.role === 'admin');
+          if (
+            defaultAdmin &&
+            !parsed.some((u) => u.id === defaultAdmin.id || u.username === defaultAdmin.username)
+          ) {
+            parsed.unshift(defaultAdmin);
+            modified = true;
           }
           // Heal roles and restore default teacher password hashes if accidentally overwritten
           for (const u of parsed) {
@@ -924,16 +1088,50 @@ class ApiService {
         }
       } catch {}
     }
-    if (!localStorage.getItem(STORAGE_KEYS.QUESTIONS)) {
-      localStorage.setItem(STORAGE_KEYS.QUESTIONS, JSON.stringify(INITIAL_QUESTIONS));
-    }
-    const storedExams = localStorage.getItem(STORAGE_KEYS.EXAMS);
-    if (!storedExams) {
-      localStorage.setItem(STORAGE_KEYS.EXAMS, JSON.stringify(INITIAL_EXAMS));
+
+    const storedQuestions = localStorage.getItem(STORAGE_KEYS.QUESTIONS);
+    if (!storedQuestions) {
+      localStorage.setItem(
+        STORAGE_KEYS.QUESTIONS,
+        JSON.stringify(
+          INITIAL_QUESTIONS.filter(
+            (q) => !deletedIds[q.id] && !deletedIds[q.subjectId] && !deletedIds[`subj_q:${q.subjectId}`]
+          )
+        )
+      );
     } else {
       try {
-        const parsedExams: Exam[] = JSON.parse(storedExams);
+        const parsed: Question[] = JSON.parse(storedQuestions);
+        const filtered = parsed.filter(
+          (q) =>
+            q?.id &&
+            !deletedIds[q.id] &&
+            !deletedIds[q.subjectId] &&
+            !deletedIds[`subj_q:${q.subjectId}`]
+        );
+        if (filtered.length !== parsed.length) {
+          localStorage.setItem(STORAGE_KEYS.QUESTIONS, JSON.stringify(filtered));
+        }
+      } catch {}
+    }
+
+    const storedExams = localStorage.getItem(STORAGE_KEYS.EXAMS);
+    if (!storedExams) {
+      localStorage.setItem(
+        STORAGE_KEYS.EXAMS,
+        JSON.stringify(INITIAL_EXAMS.filter((e) => !deletedIds[e.id] && !deletedIds[e.subjectId]))
+      );
+    } else {
+      try {
+        let parsedExams: Exam[] = JSON.parse(storedExams);
         let modified = false;
+        const beforeLen = parsedExams.length;
+        parsedExams = parsedExams.filter(
+          (ex) => ex?.id && !deletedIds[ex.id] && !deletedIds[ex.subjectId]
+        );
+        if (parsedExams.length !== beforeLen) {
+          modified = true;
+        }
         const todayStr = getLocalDateString();
         const tomorrowStr = getLocalDateString(new Date(Date.now() + 86400000));
         parsedExams.forEach((ex, idx) => {
@@ -1076,13 +1274,83 @@ class ApiService {
       'resetStudentExam',
     ].includes(action);
 
+    const unmarkKeys: string[] = [];
+
     // Track deletions across devices so deleted items don't resurrect on merge
-    if (action === 'deleteClass' || action === 'deleteSubject' || action === 'deleteQuestion' || action === 'deleteExam') {
+    if (action === 'deleteClass' || action === 'deleteExam') {
       if (data.id) this.markDeletedId(String(data.id));
+    } else if (action === 'deleteSubject') {
+      if (data.id) {
+        const subjId = String(data.id);
+        this.markDeletedId(subjId);
+        this.markDeletedId(`subj_q:${subjId}`);
+        // Also mark all questions belonging to this deleted subject as deleted so they never get reassigned
+        try {
+          const qs: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
+          qs.filter((q) => q.subjectId === subjId).forEach((q) => this.markDeletedId(q.id));
+        } catch {}
+      }
+    } else if (action === 'deleteQuestion') {
+      if (data.id) {
+        this.markDeletedId(String(data.id));
+      }
+      if (data.deleteAllBySubject && data.subjectId) {
+        const subjId = String(data.subjectId);
+        this.markDeletedId(`subj_q:${subjId}`);
+        try {
+          const qs: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
+          qs.filter((q) => q.subjectId === subjId).forEach((q) => this.markDeletedId(q.id));
+        } catch {}
+      }
     } else if (action === 'deleteStudent' || action === 'deleteTeacher') {
-      if (data.userId) this.markDeletedId(String(data.userId));
+      if (data.userId) {
+        const uId = String(data.userId);
+        let targetUname = String(data.username || '');
+        try {
+          const allU: User[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
+          const found = allU.find((u) => u.id === uId);
+          if (found?.username) targetUname = found.username;
+        } catch {}
+        this.markDeletedUser(uId, targetUname);
+        if (targetUname) {
+          data = { ...data, username: targetUname };
+        }
+      }
     } else if (action === 'resetStudentExam') {
       if (data.studentExamId) this.markDeletedId(String(data.studentExamId));
+    } else if (action === 'saveQuestion' || action === 'batchSaveQuestions') {
+      const targetSubjId = String(
+        data.subjectId || ((data.questions as any[])?.[0]?.subjectId) || ''
+      );
+      if (targetSubjId) {
+        const k = `subj_q:${targetSubjId}`;
+        unmarkKeys.push(k);
+        this.unmarkDeletedIds([k]);
+      }
+      if (data.id) {
+        unmarkKeys.push(String(data.id));
+        this.unmarkDeletedIds([String(data.id)]);
+      }
+    } else if (action === 'saveStudent' || action === 'saveTeacher') {
+      const uname = String(data.username || '').trim();
+      const norm = normalizeUsernameOrNisn(uname);
+      const noZero = stripLeadingZeros(uname);
+      const keysToClear = [
+        data.id ? String(data.id) : '',
+        norm ? `uname:${norm}` : '',
+        norm ? `USR-SISWA-${norm}` : '',
+        norm ? `USR-GURU-${norm}` : '',
+        uname ? `USR-SISWA-${uname}` : '',
+        uname ? `USR-GURU-${uname}` : '',
+        noZero ? `uname:${noZero}` : '',
+      ].filter(Boolean);
+      unmarkKeys.push(...keysToClear);
+      this.unmarkDeletedIds(keysToClear);
+    } else if (action === 'saveClass' || action === 'saveSubject' || action === 'saveExam') {
+      if (data.id) {
+        unmarkKeys.push(String(data.id));
+        this.unmarkDeletedIds([String(data.id)]);
+      }
     }
 
     // If live GAS mode is enabled and a valid URL is provided
@@ -1125,6 +1393,14 @@ class ApiService {
         if (!gasRes || !gasRes.success) {
           gasRes = await this.callGasEndpoint<any>(action, payloadToSend, adminToken);
         }
+        // When deleting a subject in GAS, also delete its questions in GAS so they don't become orphans
+        if (action === 'deleteSubject' && payloadToSend.id) {
+          void this.callGasEndpoint(
+            'deleteQuestion',
+            { subjectId: payloadToSend.id, deleteAllBySubject: true },
+            adminToken
+          );
+        }
         // If saving a student and an older Code.gs matched a row with USR-GURU id, replace it cleanly in GAS
         if (action === 'saveStudent' && gasRes?.id && String(gasRes.id).toUpperCase().startsWith('USR-GURU')) {
           await this.callGasEndpoint('deleteTeacher', { userId: gasRes.id }, adminToken);
@@ -1140,10 +1416,13 @@ class ApiService {
 
         // If questions were uploaded/modified, also sync exams' totalQuestions in GAS
         if (action === 'batchSaveQuestions' || action === 'saveQuestion' || action === 'deleteQuestion') {
+          const deletedIds = this.getDeletedIds();
           const allQuestions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
           const allSubjects: Subject[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
           const allClasses: ClassRoom[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
-          const allExams: Exam[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]');
+          const allExams: Exam[] = (
+            JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]') as Exam[]
+          ).filter((e) => e?.id && !deletedIds[e.id] && !deletedIds[e.subjectId]);
           for (const ex of allExams) {
             const resolved = this.resolveExamAndQuestions(ex, allQuestions, allSubjects, allClasses);
             if (ex.totalQuestions !== resolved.effectiveTotalQuestions || ex.subjectId !== resolved.effectiveSubjectId) {
@@ -1156,7 +1435,7 @@ class ApiService {
           localStorage.setItem(STORAGE_KEYS.EXAMS, JSON.stringify(allExams));
         }
 
-        await this.syncWithServer();
+        await this.syncWithServer(true, unmarkKeys);
         if (gasRes && gasRes.success) {
           return gasRes as T;
         }
@@ -1173,6 +1452,7 @@ class ApiService {
           void this.syncUsersFromGas();
         }
 
+        const deletedIds = this.getDeletedIds();
         const allQuestions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
         const allSubjects: Subject[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
         const allClasses: ClassRoom[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
@@ -1180,53 +1460,43 @@ class ApiService {
         const localExamMap = new Map<string, Exam>(localExams.map((e) => [e.id, e]));
 
         if (gasRes && gasRes.success && Array.isArray(gasRes.exams)) {
-          const enrichedList = gasRes.exams.map((rawEx: any) => {
-            const localMatch = localExamMap.get(String(rawEx.id));
-            const normalizedSched = normalizeExamScheduleFields(rawEx, localMatch);
-            const mergedBase: Exam = {
-              ...(localMatch || {}),
-              ...rawEx,
-              id: String(rawEx.id),
-              token: rawEx.token || localMatch?.token || 'SHM2026',
-              examDate: normalizedSched.examDate,
-              startTime: normalizedSched.startTime,
-              endTime: normalizedSched.endTime,
-              startWindow: normalizedSched.startWindow,
-              endWindow: normalizedSched.endWindow,
-            };
-            const resolved = this.resolveExamAndQuestions(mergedBase, allQuestions, allSubjects, allClasses);
-            const schedule = getExamScheduleStatus(mergedBase);
+          const enrichedList = gasRes.exams
+            .filter(
+              (rawEx: any) =>
+                rawEx?.id &&
+                !deletedIds[String(rawEx.id)] &&
+                !deletedIds[String(rawEx.subjectId || '')]
+            )
+            .map((rawEx: any) => {
+              const localMatch = localExamMap.get(String(rawEx.id));
+              const normalizedSched = normalizeExamScheduleFields(rawEx, localMatch);
+              const mergedBase: Exam = {
+                ...(localMatch || {}),
+                ...rawEx,
+                id: String(rawEx.id),
+                token: rawEx.token || localMatch?.token || 'SHM2026',
+                examDate: normalizedSched.examDate,
+                startTime: normalizedSched.startTime,
+                endTime: normalizedSched.endTime,
+                startWindow: normalizedSched.startWindow,
+                endWindow: normalizedSched.endWindow,
+              };
+              const resolved = this.resolveExamAndQuestions(mergedBase, allQuestions, allSubjects, allClasses);
+              const schedule = getExamScheduleStatus(mergedBase);
 
-            if (
-              Number(rawEx.totalQuestions) !== resolved.effectiveTotalQuestions ||
-              String(rawEx.subjectId) !== resolved.effectiveSubjectId
-            ) {
-              void this.callGasEndpoint(
-                'saveExam',
-                {
-                  ...mergedBase,
-                  subjectId: resolved.effectiveSubjectId,
-                  subjectName: resolved.effectiveSubjectName,
-                  className: resolved.effectiveClassName,
-                  totalQuestions: resolved.effectiveTotalQuestions,
-                },
-                adminToken
-              );
-            }
-
-            return {
-              ...mergedBase,
-              subjectId: resolved.effectiveSubjectId,
-              subjectName: resolved.effectiveSubjectName,
-              className: resolved.effectiveClassName,
-              totalQuestions: resolved.effectiveTotalQuestions,
-              isWithinWindow: schedule.isWithinWindow,
-              scheduleStatus: schedule.status,
-              scheduleLabel: schedule.label,
-              scheduleDetails: schedule.details,
-              scheduleBadgeClass: schedule.badgeClass,
-            };
-          });
+              return {
+                ...mergedBase,
+                subjectId: resolved.effectiveSubjectId,
+                subjectName: resolved.effectiveSubjectName,
+                className: resolved.effectiveClassName,
+                totalQuestions: resolved.effectiveTotalQuestions,
+                isWithinWindow: schedule.isWithinWindow,
+                scheduleStatus: schedule.status,
+                scheduleLabel: schedule.label,
+                scheduleDetails: schedule.details,
+                scheduleBadgeClass: schedule.badgeClass,
+              };
+            });
           return { success: true, exams: enrichedList } as unknown as T;
         }
       }
@@ -1377,9 +1647,17 @@ class ApiService {
           localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(cleanSubjs));
           return { success: true, subjects: cleanSubjs } as unknown as T;
         }
-        if (action === 'getQuestions' && Array.isArray(gasRes.questions) && !data.subjectId) {
-          const cleanQs = gasRes.questions.filter((q: any) => q?.id && !deletedIds[q.id]);
-          localStorage.setItem(STORAGE_KEYS.QUESTIONS, JSON.stringify(cleanQs));
+        if (action === 'getQuestions' && Array.isArray(gasRes.questions)) {
+          const cleanQs = gasRes.questions.filter(
+            (q: any) =>
+              q?.id &&
+              !deletedIds[q.id] &&
+              !deletedIds[String(q.subjectId || '')] &&
+              !deletedIds[`subj_q:${String(q.subjectId || '')}`]
+          );
+          if (!data.subjectId) {
+            localStorage.setItem(STORAGE_KEYS.QUESTIONS, JSON.stringify(cleanQs));
+          }
           return { success: true, questions: cleanQs } as unknown as T;
         }
         if (action === 'getClasses' && Array.isArray(gasRes.classes)) {
@@ -1389,6 +1667,7 @@ class ApiService {
         }
         if (action === 'getExams' && Array.isArray(gasRes.exams)) {
           await this.syncWithServer();
+          const latestDeleted = this.getDeletedIds();
           const allQuestions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
           const allSubjects: Subject[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
           const allClasses: ClassRoom[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
@@ -1396,7 +1675,12 @@ class ApiService {
           const localMap = new Map<string, Exam>(localExams.map((e) => [e.id, e]));
 
           const enrichedExams: Exam[] = gasRes.exams
-            .filter((e: any) => e?.id && !deletedIds[e.id])
+            .filter(
+              (e: any) =>
+                e?.id &&
+                !latestDeleted[e.id] &&
+                !latestDeleted[String(e.subjectId || '')]
+            )
             .map((e: any) => {
               const prev = localMap.get(String(e.id));
               const normalizedSched = normalizeExamScheduleFields(e, prev);
@@ -1428,26 +1712,27 @@ class ApiService {
         if (action === 'getStudents' && Array.isArray(gasRes.students)) {
           const allUsers = this.mergeSheetUsersIntoLocal(gasRes.students, undefined);
           const students = allUsers
-            .filter((u) => resolveUserRole(u) === 'siswa')
+            .filter((u) => !this.isUserDeleted(u) && resolveUserRole(u) === 'siswa')
             .map(({ passwordHash: _, salt: __, ...clean }) => ({ ...clean, role: 'siswa' as const }));
           return { success: true, students } as unknown as T;
         }
         if (action === 'getTeachers' && Array.isArray(gasRes.teachers)) {
           const allUsers = this.mergeSheetUsersIntoLocal(undefined, gasRes.teachers);
           const teachers = allUsers
-            .filter((u) => resolveUserRole(u) === 'guru')
+            .filter((u) => !this.isUserDeleted(u) && resolveUserRole(u) === 'guru')
             .map(({ passwordHash: _, salt: __, ...clean }) => ({ ...clean, role: 'guru' as const }));
           return { success: true, teachers } as unknown as T;
         }
         if (action === 'getExamResults' && Array.isArray(gasRes.results)) {
           await this.syncWithServer();
+          const latestDeleted = this.getDeletedIds();
           const localSessions: StudentExamSession[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]');
           const users: User[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
           const userMap = new Map(users.map((u) => [u.id, u]));
           const resultMap = new Map<string, any>();
 
           for (const s of localSessions) {
-            if (!s?.id || deletedIds[s.id]) continue;
+            if (!s?.id || latestDeleted[s.id] || latestDeleted[s.examId]) continue;
             if (data.examId && s.examId !== data.examId) continue;
             const u = userMap.get(s.userId);
             resultMap.set(s.id, {
@@ -1469,7 +1754,7 @@ class ApiService {
           }
 
           for (const r of gasRes.results) {
-            if (!r?.id || deletedIds[r.id]) continue;
+            if (!r?.id || latestDeleted[r.id] || latestDeleted[String(r.examId || '')]) continue;
             if (data.examId && r.examId !== data.examId) continue;
             const u = userMap.get(r.userId);
             resultMap.set(String(r.id), {
@@ -1489,17 +1774,32 @@ class ApiService {
           return { success: true, results: Array.from(resultMap.values()) } as unknown as T;
         }
         if (action === 'getSystemStats' && gasRes.stats) {
-          const users: User[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
-          const questions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
-          const exams: Exam[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]');
-          const sessions: StudentExamSession[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]');
+          const latestDeleted = this.getDeletedIds();
+          const users: User[] = (
+            JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]') as User[]
+          ).filter((u) => !this.isUserDeleted(u, latestDeleted));
+          const questions: Question[] = (
+            JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]') as Question[]
+          ).filter(
+            (q) =>
+              q?.id &&
+              !latestDeleted[q.id] &&
+              !latestDeleted[q.subjectId] &&
+              !latestDeleted[`subj_q:${q.subjectId}`]
+          );
+          const exams: Exam[] = (
+            JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]') as Exam[]
+          ).filter((e) => e?.id && !latestDeleted[e.id] && !latestDeleted[e.subjectId]);
+          const sessions: StudentExamSession[] = (
+            JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]') as StudentExamSession[]
+          ).filter((s) => s?.id && !latestDeleted[s.id]);
           const localActive = sessions.filter((s) => s.status === 'in_progress').length;
           return {
             success: true,
             stats: {
-              totalStudents: Math.max(Number(gasRes.stats.totalStudents) || 0, users.filter((u) => resolveUserRole(u) === 'siswa').length),
-              totalQuestions: Math.max(Number(gasRes.stats.totalQuestions) || 0, questions.length),
-              totalExams: Math.max(Number(gasRes.stats.totalExams) || 0, exams.length),
+              totalStudents: users.filter((u) => resolveUserRole(u) === 'siswa').length,
+              totalQuestions: questions.length,
+              totalExams: exams.length,
               activeSessions: Math.max(Number(gasRes.stats.activeSessions) || 0, localActive),
             },
           } as unknown as T;
@@ -1516,7 +1816,7 @@ class ApiService {
     // Local + Shared Server Execution
     const result = await this.executeMockAction(action, data, token);
     if (isWriteAction || action === 'startExam' || action === 'saveAnswer' || action === 'submitExam' || action === 'logViolation') {
-      await this.syncWithServer();
+      await this.syncWithServer(true, unmarkKeys);
     }
     return result as T;
   }
@@ -1841,14 +2141,31 @@ class ApiService {
         createdAt: new Date().toISOString(),
       };
 
+    const deletedIds = this.getDeletedIds();
+
     // Mock Handlers
     switch (action) {
       case 'getAvailableExams': {
-        const exams: Exam[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]');
-        const questions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
-        const subjects: Subject[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
-        const classes: ClassRoom[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
-        const sessions: StudentExamSession[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]');
+        const exams: Exam[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]') as Exam[]
+        ).filter((e) => e?.id && !deletedIds[e.id] && (!e.subjectId || !deletedIds[e.subjectId]));
+        const questions: Question[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]') as Question[]
+        ).filter(
+          (q) =>
+            q?.id &&
+            !deletedIds[q.id] &&
+            (!q.subjectId || (!deletedIds[q.subjectId] && !deletedIds[`subj_q:${q.subjectId}`]))
+        );
+        const subjects: Subject[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]') as Subject[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
+        const classes: ClassRoom[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]') as ClassRoom[]
+        ).filter((c) => c?.id && !deletedIds[c.id]);
+        const sessions: StudentExamSession[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]') as StudentExamSession[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
         const userSessions = sessions.filter((s) => s.userId === currentUser.id);
 
         const list = exams
@@ -1891,14 +2208,18 @@ class ApiService {
       case 'startExam': {
         const examId = String(data.examId);
         const tokenInput = String(data.token || '').trim();
-        const exams: Exam[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]');
+        const exams: Exam[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]') as Exam[]
+        ).filter((e) => e?.id && !deletedIds[e.id] && (!e.subjectId || !deletedIds[e.subjectId]));
         const exam = exams.find((e) => e.id === examId);
         if (!exam) return { success: false, error: 'Ujian tidak ditemukan.' };
 
         // Server-Side Schedule Window Validation (Automatic Activation on Exam Date)
         const schedule = getExamScheduleStatus(exam);
 
-        const sessions: StudentExamSession[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]');
+        const sessions: StudentExamSession[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]') as StudentExamSession[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
         let session = sessions.find((s) => s.examId === examId && s.userId === currentUser.id);
 
         if (session && (session.status === 'submitted' || session.status === 'timed_out')) {
@@ -1915,9 +2236,20 @@ class ApiService {
         }
 
         // Fetch questions for this exam using resolveExamAndQuestions so all 50 uploaded questions are included
-        const questions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
-        const subjects: Subject[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
-        const classes: ClassRoom[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
+        const questions: Question[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]') as Question[]
+        ).filter(
+          (q) =>
+            q?.id &&
+            !deletedIds[q.id] &&
+            (!q.subjectId || (!deletedIds[q.subjectId] && !deletedIds[`subj_q:${q.subjectId}`]))
+        );
+        const subjects: Subject[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]') as Subject[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
+        const classes: ClassRoom[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]') as ClassRoom[]
+        ).filter((c) => c?.id && !deletedIds[c.id]);
         const resolved = this.resolveExamAndQuestions(exam, questions, subjects, classes);
         const examQuestions = resolved.matchedQuestions;
 
@@ -2128,7 +2460,9 @@ class ApiService {
 
       // Teacher / Admin Handlers
       case 'getClasses': {
-        const classes: ClassRoom[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
+        const classes: ClassRoom[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]') as ClassRoom[]
+        ).filter((c) => c?.id && !deletedIds[c.id]);
         return { success: true, classes };
       }
 
@@ -2137,8 +2471,8 @@ class ApiService {
         try {
           classes = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
         } catch {}
-        if (!Array.isArray(classes) || classes.length === 0) {
-          classes = [...INITIAL_CLASSES];
+        if (!Array.isArray(classes)) {
+          classes = [];
         }
 
         const cData = data as unknown as Partial<ClassRoom>;
@@ -2190,6 +2524,7 @@ class ApiService {
           classes.push(newClass);
         }
 
+        if (savedId) this.unmarkDeletedIds([savedId]);
         localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(classes));
         this.writeLog(currentUser.id, currentUser.fullName, 'SAVE_CLASS', `Menyimpan rombel kelas: ${name} (Tingkat ${grade})`, 'info');
         return { success: true, id: savedId, message: `Rombel kelas "${name}" berhasil disimpan.` };
@@ -2201,6 +2536,7 @@ class ApiService {
           classes = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
         } catch {}
         const id = String(data.id);
+        this.markDeletedId(id);
         classes = classes.filter((c) => c.id !== id);
         localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(classes));
         this.writeLog(currentUser.id, currentUser.fullName, 'DELETE_CLASS', `Menghapus rombel kelas ID: ${id}`, 'warning');
@@ -2208,7 +2544,9 @@ class ApiService {
       }
 
       case 'getSubjects': {
-        const subjects: Subject[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
+        const subjects: Subject[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]') as Subject[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
         return { success: true, subjects };
       }
 
@@ -2217,8 +2555,8 @@ class ApiService {
         try {
           subjects = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
         } catch {}
-        if (!Array.isArray(subjects) || subjects.length === 0) {
-          subjects = [...INITIAL_SUBJECTS];
+        if (!Array.isArray(subjects)) {
+          subjects = [];
         }
 
         const sData = data as unknown as Partial<Subject>;
@@ -2274,6 +2612,7 @@ class ApiService {
           subjects.push(newSubj);
         }
 
+        if (savedId) this.unmarkDeletedIds([savedId, `subj_q:${savedId}`]);
         localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(subjects));
         this.writeLog(currentUser.id, currentUser.fullName, 'SAVE_SUBJECT', `Menyimpan mata pelajaran: ${name} (${code})`, 'info');
         return { success: true, id: savedId, message: `Mata pelajaran "${name}" berhasil disimpan.` };
@@ -2285,14 +2624,48 @@ class ApiService {
           subjects = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
         } catch {}
         const id = String(data.id);
+        this.markDeletedIds([id, `subj_q:${id}`]);
         subjects = subjects.filter((s) => s.id !== id);
         localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(subjects));
+
+        // Hapus juga soal dan jadwal ujian yang terkait dengan mata pelajaran yang dihapus agar tidak muncul kembali
+        try {
+          const questions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
+          const removedQIds = questions.filter((q) => q.subjectId === id).map((q) => q.id);
+          if (removedQIds.length > 0) {
+            this.markDeletedIds(removedQIds);
+            localStorage.setItem(
+              STORAGE_KEYS.QUESTIONS,
+              JSON.stringify(questions.filter((q) => q.subjectId !== id))
+            );
+          }
+        } catch {}
+
+        try {
+          const exams: Exam[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]');
+          const removedExamIds = exams.filter((e) => e.subjectId === id).map((e) => e.id);
+          if (removedExamIds.length > 0) {
+            this.markDeletedIds(removedExamIds);
+            localStorage.setItem(
+              STORAGE_KEYS.EXAMS,
+              JSON.stringify(exams.filter((e) => e.subjectId !== id))
+            );
+          }
+        } catch {}
+
         this.writeLog(currentUser.id, currentUser.fullName, 'DELETE_SUBJECT', `Menghapus mata pelajaran ID: ${id}`, 'warning');
         return { success: true, message: 'Mata pelajaran berhasil dihapus.' };
       }
 
       case 'getQuestions': {
-        const questions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
+        const questions: Question[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]') as Question[]
+        ).filter(
+          (q) =>
+            q?.id &&
+            !deletedIds[q.id] &&
+            (!q.subjectId || (!deletedIds[q.subjectId] && !deletedIds[`subj_q:${q.subjectId}`]))
+        );
         return { success: true, questions };
       }
 
@@ -2328,6 +2701,9 @@ class ApiService {
           };
           questions.push(newQ);
         }
+        if (qData.subjectId) {
+          this.unmarkDeletedIds([`subj_q:${qData.subjectId}`]);
+        }
         localStorage.setItem(STORAGE_KEYS.QUESTIONS, JSON.stringify(questions));
         this.writeLog(currentUser.id, currentUser.fullName, 'CREATE_QUESTION', `Menyimpan butir soal untuk mata pelajaran`, 'info');
         return { success: true };
@@ -2336,12 +2712,17 @@ class ApiService {
       case 'batchSaveQuestions': {
         const rawList = (data.questions || []) as Partial<Question>[];
         const replaceExisting = Boolean(data.replaceExisting);
-        const subjects: Subject[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
+        const subjects: Subject[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]') as Subject[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
         const targetSubjectId = String(
           data.subjectId || rawList[0]?.subjectId || subjects[0]?.id || ''
         );
         if (!Array.isArray(rawList) || rawList.length === 0) {
           return { success: false, error: 'Tidak ada data soal yang valid untuk disimpan.' };
+        }
+        if (targetSubjectId) {
+          this.unmarkDeletedIds([`subj_q:${targetSubjectId}`]);
         }
         let questions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
         if (replaceExisting && targetSubjectId) {
@@ -2415,6 +2796,7 @@ class ApiService {
         const subjectId = String(data.subjectId || '');
         let questions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
         if (data.deleteAllBySubject && subjectId) {
+          this.markDeletedId(`subj_q:${subjectId}`);
           questions.filter((q) => q.subjectId === subjectId).forEach((q) => this.markDeletedId(q.id));
           questions = questions.filter((q) => q.subjectId !== subjectId);
         } else {
@@ -2426,10 +2808,23 @@ class ApiService {
       }
 
       case 'getExams': {
-        const exams: Exam[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]');
-        const questions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
-        const subjects: Subject[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
-        const classes: ClassRoom[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
+        const exams: Exam[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]') as Exam[]
+        ).filter((e) => e?.id && !deletedIds[e.id] && (!e.subjectId || !deletedIds[e.subjectId]));
+        const questions: Question[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]') as Question[]
+        ).filter(
+          (q) =>
+            q?.id &&
+            !deletedIds[q.id] &&
+            (!q.subjectId || (!deletedIds[q.subjectId] && !deletedIds[`subj_q:${q.subjectId}`]))
+        );
+        const subjects: Subject[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]') as Subject[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
+        const classes: ClassRoom[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]') as ClassRoom[]
+        ).filter((c) => c?.id && !deletedIds[c.id]);
         const enriched = exams.map((ex) => {
           const normalizedSched = normalizeExamScheduleFields(ex);
           const resolved = this.resolveExamAndQuestions(ex, questions, subjects, classes);
@@ -2451,9 +2846,20 @@ class ApiService {
 
       case 'saveExam': {
         const exams: Exam[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]');
-        const questions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
-        const subjects: Subject[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]');
-        const classes: ClassRoom[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]');
+        const questions: Question[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]') as Question[]
+        ).filter(
+          (q) =>
+            q?.id &&
+            !deletedIds[q.id] &&
+            (!q.subjectId || (!deletedIds[q.subjectId] && !deletedIds[`subj_q:${q.subjectId}`]))
+        );
+        const subjects: Subject[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]') as Subject[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
+        const classes: ClassRoom[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.CLASSES) || '[]') as ClassRoom[]
+        ).filter((c) => c?.id && !deletedIds[c.id]);
         const eData = data as unknown as Exam;
         const examDate = eData.examDate || getLocalDateString();
         const startTime = eData.startTime || '07:30';
@@ -2484,6 +2890,7 @@ class ApiService {
             id: eData.id || 'EXAM-' + Math.random().toString(36).substring(2, 9),
           });
         }
+        if (eData.id) this.unmarkDeletedIds([eData.id]);
         localStorage.setItem(STORAGE_KEYS.EXAMS, JSON.stringify(exams));
         this.writeLog(currentUser.id, currentUser.fullName, 'UPDATE_EXAM', `Menyimpan jadwal ujian: ${eData.title} (${examDate} ${startTime}-${endTime})`, 'info');
         return { success: true };
@@ -2491,6 +2898,7 @@ class ApiService {
 
       case 'deleteExam': {
         const eId = String(data.id);
+        this.markDeletedId(eId);
         let exams: Exam[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]');
         exams = exams.filter((e) => e.id !== eId);
         localStorage.setItem(STORAGE_KEYS.EXAMS, JSON.stringify(exams));
@@ -2499,12 +2907,14 @@ class ApiService {
 
       case 'getStudents': {
         const users: User[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
-        const students = users.filter((u) => resolveUserRole(u) === 'siswa').map((u) => {
-          const safe = { ...u, role: 'siswa' as const };
-          delete safe.passwordHash;
-          delete safe.salt;
-          return safe;
-        });
+        const students = users
+          .filter((u) => !this.isUserDeleted(u, deletedIds) && resolveUserRole(u) === 'siswa')
+          .map((u) => {
+            const safe = { ...u, role: 'siswa' as const };
+            delete safe.passwordHash;
+            delete safe.salt;
+            return safe;
+          });
         return { success: true, students };
       }
 
@@ -2535,6 +2945,11 @@ class ApiService {
             users[existingIdx].salt = salt;
             users[existingIdx].passwordHash = await hashPasswordWithSalt(sData.password.trim(), salt);
           }
+          this.unmarkDeletedIds([
+            users[existingIdx].id,
+            `uname:${normalizeUsernameOrNisn(cleanUsername)}`,
+            `uname:${stripLeadingZeros(cleanUsername)}`,
+          ]);
           localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
           return { success: true, id: users[existingIdx].id };
         } else {
@@ -2557,15 +2972,31 @@ class ApiService {
             createdAt: new Date().toISOString(),
           };
           users.push(newStudent);
+          this.unmarkDeletedIds([
+            cleanNewId,
+            `uname:${normalizeUsernameOrNisn(cleanUsername)}`,
+            `uname:${stripLeadingZeros(cleanUsername)}`,
+          ]);
           localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
           return { success: true, id: newStudent.id };
         }
       }
 
       case 'deleteStudent': {
-        const userId = String(data.userId);
+        const userId = String(data.userId || '');
+        const targetUname = normalizeUsernameOrNisn(String(data.username || ''));
         let users: User[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
-        users = users.filter((u) => u.id !== userId);
+        const matched = users.filter(
+          (u) => u.id === userId || (targetUname && normalizeUsernameOrNisn(u.username) === targetUname)
+        );
+        if (matched.length > 0) {
+          matched.forEach((m) => this.markDeletedUser(m.id, m.username));
+        } else {
+          this.markDeletedUser(userId, targetUname);
+        }
+        users = users.filter(
+          (u) => u.id !== userId && (!targetUname || normalizeUsernameOrNisn(u.username) !== targetUname)
+        );
         localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
         return { success: true };
       }
@@ -2588,7 +3019,7 @@ class ApiService {
       case 'getTeachers': {
         const users: User[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
         const teachers = users
-          .filter((u) => resolveUserRole(u) === 'guru')
+          .filter((u) => !this.isUserDeleted(u, deletedIds) && resolveUserRole(u) === 'guru')
           .map(({ passwordHash: _, salt: __, ...clean }) => ({ ...clean, role: 'guru' as const }));
         return { success: true, teachers };
       }
@@ -2637,6 +3068,10 @@ class ApiService {
             users[targetIdx].salt = salt;
             users[targetIdx].passwordHash = await hashPasswordWithSalt(tData.password.trim(), salt);
           }
+          this.unmarkDeletedIds([
+            users[targetIdx].id,
+            `uname:${normalizeUsernameOrNisn(cleanUsername)}`,
+          ]);
           localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
           this.writeLog(
             currentUser.id,
@@ -2665,6 +3100,10 @@ class ApiService {
             createdAt: new Date().toISOString(),
           };
           users.push(newTeacher);
+          this.unmarkDeletedIds([
+            newTeacher.id,
+            `uname:${normalizeUsernameOrNisn(cleanUsername)}`,
+          ]);
           localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
           this.writeLog(
             currentUser.id,
@@ -2682,22 +3121,29 @@ class ApiService {
       }
 
       case 'deleteTeacher': {
-        const userId = String(data.userId);
+        const userId = String(data.userId || '');
+        const targetUname = normalizeUsernameOrNisn(String(data.username || ''));
         let users: User[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
-        const target = users.find((u) => u.id === userId && u.role === 'guru');
-        if (!target) {
-          return { success: false, error: 'Akun guru tidak ditemukan.' };
-        }
-        users = users.filter((u) => u.id !== userId);
-        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-        this.writeLog(
-          currentUser.id,
-          currentUser.fullName,
-          'UPDATE_EXAM',
-          `Menghapus akun guru: ${target.fullName} (${target.username})`,
-          'warning'
+        const target = users.find(
+          (u) =>
+            (u.id === userId || (targetUname && normalizeUsernameOrNisn(u.username) === targetUname)) &&
+            resolveUserRole(u) === 'guru'
         );
-        return { success: true, message: `Akun guru "${target.fullName}" berhasil dihapus.` };
+        this.markDeletedUser(target?.id || userId, target?.username || targetUname);
+        users = users.filter(
+          (u) => u.id !== userId && (!targetUname || normalizeUsernameOrNisn(u.username) !== targetUname)
+        );
+        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+        if (target) {
+          this.writeLog(
+            currentUser.id,
+            currentUser.fullName,
+            'UPDATE_EXAM',
+            `Menghapus akun guru: ${target.fullName} (${target.username})`,
+            'warning'
+          );
+        }
+        return { success: true, message: `Akun guru "${target?.fullName || userId}" berhasil dihapus.` };
       }
 
       case 'resetTeacherPassword': {
@@ -2722,7 +3168,9 @@ class ApiService {
       }
 
       case 'getExamResults': {
-        const sessions: StudentExamSession[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]');
+        const sessions: StudentExamSession[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]') as StudentExamSession[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
         const users: User[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
         const userMap = new Map(users.map((u) => [u.id, u]));
 
@@ -2750,6 +3198,7 @@ class ApiService {
 
       case 'resetStudentExam': {
         const studentExamId = String(data.studentExamId);
+        this.markDeletedId(studentExamId);
         let sessions: StudentExamSession[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]');
         const target = sessions.find((s) => s.id === studentExamId);
         sessions = sessions.filter((s) => s.id !== studentExamId);
@@ -2771,15 +3220,28 @@ class ApiService {
       }
 
       case 'getSystemStats': {
-        const users: User[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
-        const questions: Question[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]');
-        const exams: Exam[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]');
-        const sessions: StudentExamSession[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]');
+        const users: User[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]') as User[]
+        ).filter((u) => !this.isUserDeleted(u, deletedIds));
+        const questions: Question[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]') as Question[]
+        ).filter(
+          (q) =>
+            q?.id &&
+            !deletedIds[q.id] &&
+            (!q.subjectId || (!deletedIds[q.subjectId] && !deletedIds[`subj_q:${q.subjectId}`]))
+        );
+        const exams: Exam[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]') as Exam[]
+        ).filter((e) => e?.id && !deletedIds[e.id] && (!e.subjectId || !deletedIds[e.subjectId]));
+        const sessions: StudentExamSession[] = (
+          JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSIONS) || '[]') as StudentExamSession[]
+        ).filter((s) => s?.id && !deletedIds[s.id]);
 
         return {
           success: true,
           stats: {
-            totalStudents: users.filter((u) => u.role === 'siswa').length,
+            totalStudents: users.filter((u) => resolveUserRole(u) === 'siswa').length,
             totalQuestions: questions.length,
             totalExams: exams.length,
             activeSessions: sessions.filter((s) => s.status === 'in_progress').length,
@@ -2926,6 +3388,12 @@ class ApiService {
     return this.dispatch('deleteQuestion', { subjectId, deleteAllBySubject: true });
   }
 
+  public isIdDeleted(id: string): boolean {
+    if (!id) return false;
+    const deleted = this.getDeletedIds();
+    return Boolean(deleted[id] || deleted[`subj_q:${id}`]);
+  }
+
   /**
    * Memindahkan / menyinkronkan soal yang memiliki subjectId yatim (misal SUBJ-FIQ-10)
    * ke ID mata pelajaran sasaran yang terdaftar di sistem & Google Spreadsheet.
@@ -2936,6 +3404,7 @@ class ApiService {
     movedQuestions: Question[]
   ): Promise<void> {
     if (!oldSubjectId || !newSubjectId || oldSubjectId === newSubjectId) return;
+    if (this.isIdDeleted(oldSubjectId)) return;
     try {
       const localQuestions: Question[] = JSON.parse(
         localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]'
@@ -2960,7 +3429,7 @@ class ApiService {
         );
       }
 
-      await this.syncWithServer();
+      await this.syncWithServer(true);
     } catch (err) {
       console.warn('Gagal memindahkan soal yatim ke mata pelajaran sasaran:', err);
     }
@@ -3050,10 +3519,15 @@ class ApiService {
     ).filter((s) => s?.id && !deletedIds[s.id]);
     const questions: Question[] = (
       JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]') as Question[]
-    ).filter((q) => q?.id && !deletedIds[q.id]);
+    ).filter(
+      (q) =>
+        q?.id &&
+        !deletedIds[q.id] &&
+        (!q.subjectId || (!deletedIds[q.subjectId] && !deletedIds[`subj_q:${q.subjectId}`]))
+    );
     const rawExams: Exam[] = (
       JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]') as Exam[]
-    ).filter((e) => e?.id && !deletedIds[e.id]);
+    ).filter((e) => e?.id && !deletedIds[e.id] && (!e.subjectId || !deletedIds[e.subjectId]));
 
     const exams: Exam[] = rawExams.map((ex) => {
       const normalizedSched = normalizeExamScheduleFields(ex);
@@ -3074,7 +3548,7 @@ class ApiService {
 
     const allUsers: User[] = (
       JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]') as User[]
-    ).filter((u) => u?.id && !deletedIds[u.id]);
+    ).filter((u) => !this.isUserDeleted(u, deletedIds));
 
     const students: User[] = allUsers
       .filter((u) => resolveUserRole(u) === 'siswa')
@@ -3143,10 +3617,15 @@ class ApiService {
     const deletedIds = this.getDeletedIds();
     const exams: Exam[] = (
       JSON.parse(localStorage.getItem(STORAGE_KEYS.EXAMS) || '[]') as Exam[]
-    ).filter((e) => e?.id && !deletedIds[e.id]);
+    ).filter((e) => e?.id && !deletedIds[e.id] && (!e.subjectId || !deletedIds[e.subjectId]));
     const questions: Question[] = (
       JSON.parse(localStorage.getItem(STORAGE_KEYS.QUESTIONS) || '[]') as Question[]
-    ).filter((q) => q?.id && !deletedIds[q.id]);
+    ).filter(
+      (q) =>
+        q?.id &&
+        !deletedIds[q.id] &&
+        (!q.subjectId || (!deletedIds[q.subjectId] && !deletedIds[`subj_q:${q.subjectId}`]))
+    );
     const subjects: Subject[] = (
       JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]') as Subject[]
     ).filter((s) => s?.id && !deletedIds[s.id]);

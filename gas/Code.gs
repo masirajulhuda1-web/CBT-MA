@@ -1438,19 +1438,43 @@ function handleDeleteSubject(user, data) {
     return createJsonResponse({ success: false, error: 'Hanya Admin yang dapat menghapus mata pelajaran.' });
   }
   var ss = getSpreadsheet();
+  var targetId = String(data.id || '').trim();
   var sheet = ss.getSheetByName(DB_SHEETS.SUBJECTS);
-  if (!sheet) {
-    return createJsonResponse({ success: true, message: 'Mata pelajaran telah dihapus.' });
-  }
-  var rows = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][0]) === String(data.id)) {
-      sheet.deleteRow(i + 1);
-      writeLog(user.id, 'DELETE_SUBJECT', 'Menghapus mata pelajaran ID: ' + data.id, 'warning');
-      return createJsonResponse({ success: true, message: 'Mata pelajaran berhasil dihapus.' });
+  var deletedSubj = false;
+  if (sheet) {
+    var rows = sheet.getDataRange().getValues();
+    for (var i = rows.length - 1; i >= 1; i--) {
+      if (String(rows[i][0]).trim() === targetId) {
+        sheet.deleteRow(i + 1);
+        deletedSubj = true;
+      }
     }
   }
-  return createJsonResponse({ success: false, error: 'Mata pelajaran tidak ditemukan.' });
+  // Hapus juga butir soal terkait mata pelajaran yang dihapus agar tidak muncul kembali
+  var qSheet = ss.getSheetByName(DB_SHEETS.QUESTIONS);
+  if (qSheet && targetId) {
+    var qRows = qSheet.getDataRange().getValues();
+    for (var q = qRows.length - 1; q >= 1; q--) {
+      if (String(qRows[q][1]).trim() === targetId) {
+        qSheet.deleteRow(q + 1);
+      }
+    }
+  }
+  // Hapus juga jadwal ujian terkait mata pelajaran yang dihapus
+  var exSheet = ss.getSheetByName(DB_SHEETS.EXAMS);
+  if (exSheet && targetId) {
+    var exRows = exSheet.getDataRange().getValues();
+    for (var e = exRows.length - 1; e >= 1; e--) {
+      if (String(exRows[e][2]).trim() === targetId) {
+        exSheet.deleteRow(e + 1);
+      }
+    }
+  }
+  if (deletedSubj) {
+    writeLog(user.id, 'DELETE_SUBJECT', 'Menghapus mata pelajaran ID: ' + targetId, 'warning');
+    return createJsonResponse({ success: true, message: 'Mata pelajaran berhasil dihapus.' });
+  }
+  return createJsonResponse({ success: true, message: 'Mata pelajaran telah dihapus.' });
 }
 
 function handleGetQuestions(user, data) {
@@ -1480,22 +1504,26 @@ function handleGetQuestions(user, data) {
   var rows = sheet.getDataRange().getValues();
   var list = [];
   for (var i = 1; i < rows.length; i++) {
-    var rowSubjId = String(rows[i][1] || '');
-    // Jika subjectId pada soal tidak terdaftar di daftar Mata Pelajaran, arahkan otomatis ke mapel yang terdaftar
+    var rowSubjId = String(rows[i][1] || '').trim();
+    // Hanya petakan jika rowSubjId cocok dengan kode atau nama mapel aktif (bukan ID mapel yang sudah dihapus)
     if (validSubjects.length > 0 && !validSubjMap[rowSubjId]) {
-      var targetSubjId = validSubjects[0].id;
+      var matchedSubjId = '';
       for (var m = 0; m < validSubjects.length; m++) {
         var vs = validSubjects[m];
         if (
           vs.code.toLowerCase() === rowSubjId.toLowerCase() ||
           vs.name.toLowerCase() === rowSubjId.toLowerCase()
         ) {
-          targetSubjId = vs.id;
+          matchedSubjId = vs.id;
           break;
         }
       }
-      rowSubjId = targetSubjId;
-      sheet.getRange(i + 1, 2).setValue(rowSubjId);
+      if (matchedSubjId) {
+        rowSubjId = matchedSubjId;
+        sheet.getRange(i + 1, 2).setValue(rowSubjId);
+      } else {
+        continue;
+      }
     }
 
     if (!data.subjectId || rowSubjId === data.subjectId) {
@@ -1977,14 +2005,22 @@ function handleDeleteStudent(user, data) {
   var ss = getSpreadsheet();
   var sheet = ss.getSheetByName(DB_SHEETS.USERS);
   var rows = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] === data.userId) {
+  var targetId = String(data.userId || '').trim();
+  var targetUname = String(data.username || '').trim().toLowerCase();
+  var deleted = false;
+  for (var i = rows.length - 1; i >= 1; i--) {
+    var rId = String(rows[i][0] || '').trim();
+    var rUname = String(rows[i][1] || '').trim().toLowerCase();
+    if ((targetId && rId === targetId) || (targetUname && rUname === targetUname)) {
       sheet.deleteRow(i + 1);
-      writeLog(user.id, 'DELETE_STUDENT', 'Menghapus akun siswa ID: ' + data.userId, 'danger');
-      return createJsonResponse({ success: true });
+      deleted = true;
     }
   }
-  return createJsonResponse({ success: false, error: 'Siswa tidak ditemukan.' });
+  if (deleted) {
+    writeLog(user.id, 'DELETE_STUDENT', 'Menghapus akun siswa ID: ' + (targetId || targetUname), 'danger');
+    return createJsonResponse({ success: true });
+  }
+  return createJsonResponse({ success: true });
 }
 
 function handleGetTeachers(user) {
@@ -2108,14 +2144,22 @@ function handleDeleteTeacher(user, data) {
   var ss = getSpreadsheet();
   var sheet = ss.getSheetByName(DB_SHEETS.USERS);
   var rows = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] === data.userId && rows[i][5] === 'guru') {
+  var targetId = String(data.userId || '').trim();
+  var targetUname = String(data.username || '').trim().toLowerCase();
+  var deleted = false;
+  for (var i = rows.length - 1; i >= 1; i--) {
+    var rId = String(rows[i][0] || '').trim();
+    var rUname = String(rows[i][1] || '').trim().toLowerCase();
+    var rRole = normalizeRoleStr(rows[i][5], rows[i][0], rows[i][1], rows[i][6]);
+    if (rRole === 'guru' && ((targetId && rId === targetId) || (targetUname && rUname === targetUname))) {
       sheet.deleteRow(i + 1);
-      writeLog(user.id, 'DELETE_TEACHER', 'Menghapus akun guru ID: ' + data.userId, 'danger');
-      return createJsonResponse({ success: true, message: 'Akun guru berhasil dihapus.' });
+      deleted = true;
     }
   }
-  return createJsonResponse({ success: false, error: 'Akun guru tidak ditemukan.' });
+  if (deleted) {
+    writeLog(user.id, 'DELETE_TEACHER', 'Menghapus akun guru ID: ' + (targetId || targetUname), 'danger');
+  }
+  return createJsonResponse({ success: true, message: 'Akun guru berhasil dihapus.' });
 }
 
 function handleGetActivityLogs(user) {

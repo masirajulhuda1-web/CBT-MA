@@ -352,18 +352,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         apiService.getSystemStats(),
       ]);
 
-      const loadedSubjects = subjRes.subjects || [];
-      let loadedQuestions = qRes.questions || [];
+      const loadedSubjects = (subjRes.subjects || []).filter((s) => !apiService.isIdDeleted(s.id));
+      const validSubjectIds = new Set(loadedSubjects.map((s) => s.id));
+      const builtInSubjectIds = new Set([
+        'SUBJ-FIQ-10',
+        'SUBJ-QHD-10',
+        'SUBJ-ARB-11',
+        'SUBJ-SKI-12',
+        'SUBJ-MAT-10',
+        'SUBJ-IND-11',
+      ]);
 
-      // Auto-heal: jika ada butir soal yang subjectId-nya yatim / tidak terdaftar di daftar Mata Pelajaran
-      // (misal tersimpan sebagai 'SUBJ-FIQ-10' padahal mata pelajaran yang terdaftar adalah 'bahasa arab 10'),
-      // otomatis arahkan ke mata pelajaran sasaran yang terdaftar dan sinkronkan ke Spreadsheet.
+      // Filter out any deleted questions or built-in Fikih/Quran questions whose subject was deleted
+      let loadedQuestions = (qRes.questions || []).filter((q) => {
+        if (!q || apiService.isIdDeleted(q.id) || apiService.isIdDeleted(q.subjectId)) {
+          return false;
+        }
+        if (q.id.startsWith('Q-FIQ-') && (!validSubjectIds.has('SUBJ-FIQ-10') || apiService.isIdDeleted('SUBJ-FIQ-10'))) {
+          return false;
+        }
+        if (q.id.startsWith('Q-QHD-') && (!validSubjectIds.has('SUBJ-QHD-10') || apiService.isIdDeleted('SUBJ-QHD-10'))) {
+          return false;
+        }
+        return true;
+      });
+
+      // Auto-heal: hanya jika ada soal yang diunggah ke kode/nama mapel yang belum dipetakan (dan BUKAN mapel yang sudah dihapus)
       if (loadedSubjects.length > 0 && loadedQuestions.length > 0) {
-        const validSubjectIds = new Set(loadedSubjects.map((s) => s.id));
         const orphanedByOldId = new Map<string, Question[]>();
 
         for (const q of loadedQuestions) {
-          if (!validSubjectIds.has(q.subjectId)) {
+          if (
+            !validSubjectIds.has(q.subjectId) &&
+            !apiService.isIdDeleted(q.subjectId) &&
+            !builtInSubjectIds.has(q.subjectId)
+          ) {
             const list = orphanedByOldId.get(q.subjectId) || [];
             list.push(q);
             orphanedByOldId.set(q.subjectId, list);
@@ -384,24 +407,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               targetSubj = loadedSubjects[0];
             }
 
-            if (!targetSubj) {
-              const hasArabicText = orphanGroup.some((oq) =>
-                /[\u0600-\u06FF]/.test(`${oq.questionText || ''} ${oq.optionA || ''}`)
-              );
-              if (hasArabicText) {
-                targetSubj = loadedSubjects.find(
-                  (s) =>
-                    s.name.toLowerCase().includes('arab') ||
-                    s.code.toLowerCase().startsWith('ba') ||
-                    s.code.toLowerCase().startsWith('arb')
-                );
-              }
-            }
-
-            if (!targetSubj) {
-              targetSubj = loadedSubjects[0];
-            }
-
             if (targetSubj && targetSubj.id !== oldSubjId) {
               remapTable.set(oldSubjId, targetSubj.id);
               void apiService.reassignOrphanedQuestions(oldSubjId, targetSubj.id, orphanGroup);
@@ -417,13 +422,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
       }
 
-      const loadedClasses = clsRes.classes || [];
-      let loadedExams = exRes.exams || [];
+      const loadedClasses = (clsRes.classes || []).filter((c) => !apiService.isIdDeleted(c.id));
+      let loadedExams = (exRes.exams || []).filter(
+        (ex) => !apiService.isIdDeleted(ex.id) && (!ex.subjectId || !apiService.isIdDeleted(ex.subjectId))
+      );
 
-      if (loadedExams.length > 0 && loadedQuestions.length > 0) {
+      if (loadedExams.length > 0) {
         loadedExams = loadedExams.map((ex) => {
           let effectiveSubj = loadedSubjects.find((s) => s.id === ex.subjectId);
-          if (!effectiveSubj && loadedSubjects.length === 1) {
+          if (!effectiveSubj && loadedSubjects.length === 1 && !apiService.isIdDeleted(ex.subjectId)) {
             effectiveSubj = loadedSubjects[0];
           }
           const effectiveSubjectId = effectiveSubj?.id || ex.subjectId;
@@ -433,28 +440,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const effectiveClass = loadedClasses.find((c) => c.id === ex.classId);
           const effectiveClassName = effectiveClass?.name || ex.className || 'Semua Kelas';
 
-          let subjectQs = loadedQuestions.filter((q) => q.subjectId === effectiveSubjectId);
-          if (subjectQs.length === 0 && loadedSubjects.length === 1) {
-            subjectQs = loadedQuestions;
-          }
-
+          const subjectQs = loadedQuestions.filter((q) => q.subjectId === effectiveSubjectId);
           const actualQuestionCount = subjectQs.length > 0 ? subjectQs.length : ex.totalQuestions;
-          const updatedExam: Exam = {
+
+          return {
             ...ex,
             subjectId: effectiveSubjectId,
             subjectName: effectiveSubjectName,
             className: effectiveClassName,
             totalQuestions: actualQuestionCount,
           };
-
-          if (
-            (subjectQs.length > 0 && ex.totalQuestions !== subjectQs.length) ||
-            ex.subjectId !== effectiveSubjectId
-          ) {
-            void apiService.saveExam(updatedExam);
-          }
-
-          return updatedExam;
         });
       }
 
@@ -500,6 +495,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     try {
       if (type === 'delete_question') {
+        setQuestions((prev) => prev.filter((q) => q.id !== id));
         const res = await apiService.deleteQuestion(id);
         if (res.success) {
           showToast('success', 'Butir soal berhasil dihapus dari bank soal.');
@@ -508,6 +504,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
         await loadAllData();
       } else if (type === 'delete_subject_questions') {
+        setQuestions((prev) => prev.filter((q) => q.subjectId !== id));
         const res = await apiService.deleteQuestionsBySubject(id);
         if (res.success) {
           showToast('success', 'Seluruh butir soal pada mata pelajaran tersebut berhasil dibersihkan.');
@@ -516,6 +513,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
         await loadAllData();
       } else if (type === 'delete_exam') {
+        setExams((prev) => prev.filter((ex) => ex.id !== id));
         const res = await apiService.deleteExam(id);
         if (res.success) {
           showToast('success', 'Jadwal ujian berhasil dihapus.');
@@ -524,6 +522,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
         await loadAllData();
       } else if (type === 'delete_student') {
+        setStudents((prev) => prev.filter((st) => st.id !== id));
         const res = await apiService.deleteStudent(id);
         if (res.success) {
           showToast('success', 'Akun siswa berhasil dihapus.');
@@ -532,6 +531,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
         await loadAllData();
       } else if (type === 'delete_subject') {
+        setSubjects((prev) => prev.filter((s) => s.id !== id));
+        setQuestions((prev) => prev.filter((q) => q.subjectId !== id));
+        setExams((prev) => prev.filter((ex) => ex.subjectId !== id));
         const res = await apiService.deleteSubject(id);
         if (res.success) {
           showToast('success', res.message || 'Mata pelajaran berhasil dihapus.');
@@ -540,6 +542,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
         await loadAllData();
       } else if (type === 'delete_class') {
+        setClasses((prev) => prev.filter((c) => c.id !== id));
         const res = await apiService.deleteClass(id);
         if (res.success) {
           if (selectedRombelId === id) setSelectedRombelId('ALL');
@@ -549,6 +552,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
         await loadAllData();
       } else if (type === 'reset_attempt') {
+        setExamResults((prev) => prev.filter((r) => r.id !== id));
         const res = await apiService.resetStudentExam(id);
         if (res.success) {
           showToast('success', res.message || 'Sesi siswa berhasil direset. Siswa dapat mengikuti ujian kembali.');
@@ -565,6 +569,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
         await loadAllData();
       } else if (type === 'delete_teacher') {
+        setTeachers((prev) => prev.filter((t) => t.id !== id));
         const res = await apiService.deleteTeacher(id);
         if (res.success) {
           showToast('success', res.message || 'Akun guru berhasil dihapus.');

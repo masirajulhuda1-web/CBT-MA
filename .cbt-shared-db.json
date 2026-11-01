@@ -126,13 +126,6 @@
   ],
   "subjects": [
     {
-      "id": "SUBJ-FIQ-10",
-      "code": "FIQ-10",
-      "name": "Fikih",
-      "teacherId": "USR-GURU-1",
-      "teacherName": "Ust. Ahmad Fauzi, S.Pd.I"
-    },
-    {
       "id": "SUBJ-QHD-10",
       "code": "QHD-10",
       "name": "Al-Qur'an Hadis",
@@ -1231,7 +1224,7 @@
       "subjectId": "SUBJ-ARB-11",
       "classId": "CLS-10-IPS",
       "questionText": "الْأَمْنُ السِّيبِرَانِيُّ (الْأَمْنُ الرَّقْمِيُّ) يَهْدِفُ إِلَى...",
-      "optionA": "إِتْلَافِ الْأَجْهِزَةِ",
+      "optionA": "إ����تْلَافِ الْأَجْهِزَةِ",
       "optionB": "حِمَايَةِ الْبَيَانَاتِ وَالْأَنْظِمَةِ مِنَ الِاخْتِرَاقِ",
       "optionC": "نَشْرِ الْفَيْرُوسَاتِ",
       "optionD": "تَعْطِيلِ شَبَكَةِ الْإِنْتِرْنِت",
@@ -1427,7 +1420,7 @@
       "classId": "CLS-10-IPS",
       "questionText": "حُكْمُ إِعْرَابِ اسْمِ التَّفْضِيلِ «أَفْعَل» أَنَّهُ مَمْنُوعٌ مِنَ الصَّرْفِ، فَيُجَرُّ بـِ...",
       "optionA": "الْكَسْرَةِ الظَّاهِرَةِ دَائِمًا",
-      "optionB": "الْفَتْحَةِ نِيَابَةً عَنِ الْكَسْرَةِ (إِذَا لَمْ يُعَرَّفْ بِـ أَلْ وَلَمْ يُضَفْ)",
+      "optionB": "الْفَتْحَةِ نِيَابَةً عَنِ الْكَسْرَةِ (إِذَا لَمْ يُعَرَّفْ بِـ أَلْ وَلَمْ يُ����َفْ)",
       "optionC": "السُّكُونِ",
       "optionD": "ثُبُوتِ النُّونِ",
       "optionE": "حَذْفِ حَرْفِ الْعِلَّةِ",
@@ -1693,7 +1686,7 @@
     },
     {
       "id": "Q-3yjokrw",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "السَّلَامُ عَلَيْكُمْ...",
       "optionA": "أ. وَعَلَيْكُمُ السَّلَامُ",
@@ -1708,7 +1701,7 @@
     },
     {
       "id": "Q-m500n8v",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "صَبَاحَ الْخَيْرِ، إِجَابَتُهَا...",
       "optionA": "أ. مَسَاءَ الْخَيْرِ",
@@ -1723,7 +1716,7 @@
     },
     {
       "id": "Q-oxnp6i9",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "مَسَاءَ الْخَيْرِ، إِجَابَتُهَا...",
       "optionA": "أ. صَبَاحَ النُّورِ",
@@ -1738,7 +1731,7 @@
     },
     {
       "id": "Q-ujkh7ol",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "أَهْلًا وَسَهْلًا، إِجَابَتُهَا لِلْمُذَكَّرِ...",
       "optionA": "أ. أَهْلًا بِكَ",
@@ -1753,9 +1746,9 @@
     },
     {
       "id": "Q-d8moyev",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
-      "questionText": "أَهْلًا وَسَهْلًا، إِجَابَتُهَا لِلْمُؤَنَّثِ...",
+      "questionText": "أَهْلًا وَسَهْل�����������������ا، إ��جَابَتُهَا لِلْمُؤَنَّثِ...",
       "optionA": "أ. أَهْلًا بِكَ",
       "optionB": "ب. أَهْلًا بِكِ",
       "optionC": "ج. مَعَ السَّلَامَةِ",
@@ -1768,7 +1761,7 @@
     },
     {
       "id": "Q-usv76nv",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "كَيْفَ حَالُكَ؟ إِجَابَتُهَا...",
       "optionA": "أ. أَنَا طَالِبٌ",
@@ -1783,7 +1776,7 @@
     },
     {
       "id": "Q-8vroapl",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "مَا اسْمُكَ؟ إِجَابَتُهَا...",
       "optionA": "أ. اسْمِي فَرِيدٌ",
@@ -1798,7 +1791,7 @@
     },
     {
       "id": "Q-re6v30f",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "مِنْ أَيْن أنتَ؟ إِجَابَتُهَا...",
       "optionA": "أ. أَنَا فِي الْفَصْلِ",
@@ -1813,7 +1806,7 @@
     },
     {
       "id": "Q-m3g1cqc",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "شُكْرًا جَزِيلًا، إِجَابَتُهَا...",
       "optionA": "أ. مَعَ السَّلَامَةِ",
@@ -1828,7 +1821,7 @@
     },
     {
       "id": "Q-fiqdj3t",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "إِلَى اللِّقَاءِ، إِجَابَتُهَا...",
       "optionA": "أ. مَعَ السَّلَامَةِ",
@@ -1843,7 +1836,7 @@
     },
     {
       "id": "Q-of3kr61",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "تَشَرَّفْنَا بِالِقَائِكَ، إِجَابَتُهَا...",
       "optionA": "أ. الشَّرَفُ لَنَا",
@@ -1858,7 +1851,7 @@
     },
     {
       "id": "Q-1jbairt",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "مَا مَعْنَى كَلِمَةِ 'طَالِبٌ'؟",
       "optionA": "أ. Guru (LK)",
@@ -1873,7 +1866,7 @@
     },
     {
       "id": "Q-45hlpx6",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "مَا مَعْنَى كَلِمَةِ 'طَالِبَةٌ'؟",
       "optionA": "أ. Siswa (PR)",
@@ -1888,7 +1881,7 @@
     },
     {
       "id": "Q-8e7t7xd",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "أَنَا ...... فِي الْمَدْرَسَةِ الثَّانَوِيَّةِ الإِسْلَامِيَّةِ.",
       "optionA": "أ. طَالِبٌ",
@@ -1903,7 +1896,7 @@
     },
     {
       "id": "Q-52wqwuv",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "مَا مَعْنَى كَلِمَةِ 'مُدَرِّسٌ'؟",
       "optionA": "أ. Siswa",
@@ -1918,7 +1911,7 @@
     },
     {
       "id": "Q-mkugwie",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "هَذِهِ ...... اسْمُهَا عَائِشَةُ، هِيَ طَالِبَةٌ نَشِيطَةٌ.",
       "optionA": "أ. صَدِيقِي",
@@ -1933,7 +1926,7 @@
     },
     {
       "id": "Q-1h82z92",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "هَذَا ...... اسْمُهُ عُثْمَانُ، هُوَ طَالِبٌ مَاهِرٌ.",
       "optionA": "أ. صَدِيقَتِي",
@@ -1948,7 +1941,7 @@
     },
     {
       "id": "Q-3vjff3s",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "مَا مَعْنَى كَلِمَةِ 'بِطَاقَةٌ شَخْصِيَّةٌ'؟",
       "optionA": "أ. Kartu Pelajar",
@@ -1963,7 +1956,7 @@
     },
     {
       "id": "Q-g2hatm3",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "أَنَا طَالِبٌ. الضَّمِيرُ فِي هَذِهِ الْجُمْلَةِ هُوَ...",
       "optionA": "أ. أَنَا",
@@ -1978,7 +1971,7 @@
     },
     {
       "id": "Q-lb3kbvm",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "أَنْتَ طَالِبٌ مَاهِرٌ. 'أَنْتَ' ضَمِيرٌ لِلْـ...",
       "optionA": "أ. Mufrad Muzakkar Mukhatab",
@@ -1993,7 +1986,7 @@
     },
     {
       "id": "Q-vfn0n5m",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "أَنْتِ طَالِبَةٌ نَشِيطَةٌ. 'أَنْتِ' ضَمِيرٌ لِلْـ...",
       "optionA": "أ. Mufrad Muzakkar Mukhatab",
@@ -2008,7 +2001,7 @@
     },
     {
       "id": "Q-2vdye2i",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... طَالِبَةٌ جَدِيدَةٌ فِي الْفَصْلِ.",
       "optionA": "أ. هُوَ",
@@ -2023,7 +2016,7 @@
     },
     {
       "id": "Q-qkxlr3k",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... أُسْتَاذٌ فَالِضٌ فِي الْمَدْرَسَةِ.",
       "optionA": "أ. هِيَ",
@@ -2038,7 +2031,7 @@
     },
     {
       "id": "Q-qeq56ir",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "نَحْنُ ...... فِي الْمَدْرَسَةِ الثَّانَوِيَّةِ.",
       "optionA": "أ. طَالِبٌ",
@@ -2053,7 +2046,7 @@
     },
     {
       "id": "Q-n9xvg1a",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "هَذَا كِتَابِي. الضَّمِيرُ الْمُتَّصِلُ فِي كَلِمَةِ 'كِتَابِي' هُوَ...",
       "optionA": "أ. الكاف",
@@ -2068,7 +2061,7 @@
     },
     {
       "id": "Q-azaa5kz",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "هَذَا كِتَابُكَ. الضَّمِيرُ 'كَ' يَدُلُّ عَلَى...",
       "optionA": "أ. Kamu (LK)",
@@ -2083,7 +2076,7 @@
     },
     {
       "id": "Q-o17ydin",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "هَذِهِ حَقِيبَتُكِ. الضَّمِيرُ 'كِ' يَدُلُّ عَلَى...",
       "optionA": "أ. Kamu (LK)",
@@ -2098,7 +2091,7 @@
     },
     {
       "id": "Q-nfcgp49",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "هَذَا قَلَمُهُ. الضَّمِيرُ 'هُ' يَدُلُّ عَلَى...",
       "optionA": "أ. Kamu (LK)",
@@ -2113,7 +2106,7 @@
     },
     {
       "id": "Q-tf6uamu",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "هَذِهِ كُرَّاسَتُهَا. الضَّمِيرُ 'هَا' يَدُلُّ عَلَى...",
       "optionA": "أ. Dia (LK)",
@@ -2128,7 +2121,7 @@
     },
     {
       "id": "Q-vkzuhv0",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "هَذِهِ مَدْرَسَتُنَا. الضَّمِيرُ 'نَا' يَدُلُّ عَلَى...",
       "optionA": "أ. Saya",
@@ -2143,7 +2136,7 @@
     },
     {
       "id": "Q-tijds28",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "فَاطِمَةُ تَذْهَبُ إِلَى الْمَدْرَسَةِ. الضَّمِيرُ الْمُنَاسِبُ لِلْكَلِمَةِ 'فَاطِمَةُ' هُوَ...",
       "optionA": "أ. هُوَ",
@@ -2158,7 +2151,7 @@
     },
     {
       "id": "Q-5iv7y03",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "أَحْمَدُ وَإِبْرَاهِيمُ ...... فِي الْمَكْتَبَةِ.",
       "optionA": "أ. هُوَ",
@@ -2173,7 +2166,7 @@
     },
     {
       "id": "Q-iv97i1x",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "الطُّلَّابُ ...... فِي مَلْعَبِ الْمَدْرَسَةِ.",
       "optionA": "أ. هُوَ",
@@ -2188,7 +2181,7 @@
     },
     {
       "id": "Q-2vptoer",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "الطَّالِبَاتُ ...... فِي الْفَصْلِ.",
       "optionA": "أ. هُمْ",
@@ -2203,7 +2196,7 @@
     },
     {
       "id": "Q-mz4i3mg",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "أَيْنَبُ وَعَائِشَةُ وَفَاطِمَةُ ...... طَالِبَاتٌ نَشِيطَاتٌ.",
       "optionA": "أ. هُمْ",
@@ -2218,7 +2211,7 @@
     },
     {
       "id": "Q-h7hl1qp",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... اسْمُكَ؟ - اسْمِي حَسَنٌ.",
       "optionA": "أ. مَنْ",
@@ -2233,7 +2226,7 @@
     },
     {
       "id": "Q-6mkd57z",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... هَذَا؟ - هَذَا أُسْتَاذِي.",
       "optionA": "أ. مَا",
@@ -2248,7 +2241,7 @@
     },
     {
       "id": "Q-bowokj0",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... تَعْمَلُ؟ - أَنَا أَعْمَلُ فِي الْمَكْتَبِ.",
       "optionA": "أ. مَاذَا",
@@ -2263,7 +2256,7 @@
     },
     {
       "id": "Q-9783ofw",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... تَسْكُنُ؟ - أَسْكُنُ فِي شَارِعِ أَحْمَدَ يَانِي.",
       "optionA": "أ. أَيْنَ",
@@ -2278,7 +2271,7 @@
     },
     {
       "id": "Q-ip1l2ut",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... تَذْهَبُ إِلَى الْمَدْرَسَةِ؟ - أَذْهَبُ فِي السَّاعَةِ السَّادِسَةِ.",
       "optionA": "أ. أَيْنَ",
@@ -2293,7 +2286,7 @@
     },
     {
       "id": "Q-upir33c",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... حَالُكَ؟ - أَنَا بِخَيْرٍ.",
       "optionA": "أ. كَيْفَ",
@@ -2308,7 +2301,7 @@
     },
     {
       "id": "Q-ntcvpt5",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... طَالِبًا فِي الْفَصْلِ؟ - فِي الْفَصْلِ ثَلَاثُونَ طَالِبًا.",
       "optionA": "أ. كَمْ",
@@ -2323,7 +2316,7 @@
     },
     {
       "id": "Q-dt7mw4o",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... هَذَا كِتَابُكَ؟ - نَعَمْ، هَذَا كِتَابِي.",
       "optionA": "أ. هَلْ",
@@ -2338,7 +2331,7 @@
     },
     {
       "id": "Q-9v73btx",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... تَدْرُسُ اللُّغَةَ الْعَرَبِيَّةَ؟ - لِأَنَّهَا لُغَةُ الْقُرْآنِ.",
       "optionA": "أ. لِمَاذَا",
@@ -2353,7 +2346,7 @@
     },
     {
       "id": "Q-cdzdodm",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "أَ أَنْتَ طَالِبٌ؟ - .....، أَنَا طَالِبٌ.",
       "optionA": "أ. نَعَمْ",
@@ -2368,7 +2361,7 @@
     },
     {
       "id": "Q-qx97ncu",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... جِئْتَ إِلَى الْمَدْرَسَةِ؟ - جِئْتُ بِالْحَافِلَةِ.",
       "optionA": "أ. كَيْفَ",
@@ -2383,7 +2376,7 @@
     },
     {
       "id": "Q-1srjrtr",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... الْكِتَابُ؟ - الْكِتَابُ عَلَى الْمَكْتَبِ.",
       "optionA": "أ. أَيْنَ",
@@ -2398,7 +2391,7 @@
     },
     {
       "id": "Q-z0n1yqb",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... هَذِهِ السَّاعَةُ؟ - هَذِهِ السَّاعَةُ بِـ 50 أَلْفَ رُوبِيَّةٍ.",
       "optionA": "أ. كَمْ ثَمَنُ",
@@ -2413,7 +2406,7 @@
     },
     {
       "id": "Q-gsplhrf",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... تُفَضِّلُ، اللُّغَةَ الْعَرَبِيَّةَ أَمِ اللُّغَةَ الْإِنْجِلِيزِيَّةَ؟",
       "optionA": "أ. أَيُّ",
@@ -2428,7 +2421,7 @@
     },
     {
       "id": "Q-8nnajnq",
-      "subjectId": "SUBJ-FIQ-10",
+      "subjectId": "SUBJ-ARB-11",
       "classId": "",
       "questionText": "...... هَذَا الْقَلَمُ؟ - هَذَا الْقَلَمُ لِأَحْمَدَ.",
       "optionA": "أ. لِمَنْ",
@@ -2444,36 +2437,14 @@
   ],
   "exams": [
     {
-      "id": "EXAM-FIQ-PAS1",
-      "title": "Penilaian Akhir Semester (PAS) - Fikih",
-      "subjectId": "SUBJ-FIQ-10",
-      "subjectName": "Fikih",
-      "classId": "CLS-10-MIPA",
-      "className": "X MIPA",
-      "startWindow": "2026-10-29T06:00:00",
-      "endWindow": "2026-10-29T23:59:00",
-      "durationMinutes": 45,
-      "totalQuestions": 50,
-      "passingScore": 75,
-      "token": "SHM2026",
-      "status": "published",
-      "randomizeQuestions": true,
-      "randomizeOptions": false,
-      "maxViolations": 3,
-      "allowReview": true,
-      "examDate": "2026-10-29",
-      "startTime": "06:00",
-      "endTime": "23:59"
-    },
-    {
       "id": "EXAM-QHD-PAS1",
       "title": "Ujian Penilaian Tengah Semester - Al-Qur'an Hadis",
       "subjectId": "SUBJ-QHD-10",
       "subjectName": "Al-Qur'an Hadis",
       "classId": "CLS-10-MIPA",
       "className": "X MIPA",
-      "startWindow": "2026-10-30T08:00:00",
-      "endWindow": "2026-10-30T09:30:00",
+      "startWindow": "2026-10-30T08:00:00+08:00",
+      "endWindow": "2026-10-30T09:30:59+08:00",
       "durationMinutes": 60,
       "totalQuestions": 1,
       "passingScore": 75,
@@ -2615,8 +2586,67 @@
       "action": "CREATE_QUESTION",
       "details": "Mengganti & mengunggah 50 butir soal ke bank soal",
       "severity": "info"
+    },
+    {
+      "id": "LOG-ffsy6nm",
+      "timestamp": "2026-10-31T21:22:57.663Z",
+      "userId": "USR-ADMIN-1",
+      "userName": "Administrator CBT MA Sirajul Huda",
+      "action": "LOGIN",
+      "details": "Pengguna berhasil login sebagai admin",
+      "severity": "info"
+    },
+    {
+      "id": "LOG-85mu8le",
+      "timestamp": "2026-10-31T21:22:58.220Z",
+      "userId": "USR-ADMIN-1",
+      "userName": "Administrator CBT MA Sirajul Huda",
+      "action": "UPDATE_EXAM",
+      "details": "Menyimpan jadwal ujian: Penilaian Akhir Semester (PAS) - Fikih (2026-10-29 06:00-23:59)",
+      "severity": "info"
+    },
+    {
+      "id": "LOG-uhrh3cz",
+      "timestamp": "2026-10-31T21:58:58.396Z",
+      "userId": "USR-ADMIN-1",
+      "userName": "Administrator CBT MA Sirajul Huda",
+      "action": "UPDATE_EXAM",
+      "details": "Menyimpan jadwal ujian: Penilaian Akhir Semester (PAS) - Fikih (2026-10-29 06:00-23:59)",
+      "severity": "info"
+    },
+    {
+      "id": "LOG-w6cr3k6",
+      "timestamp": "2026-10-31T21:59:20.949Z",
+      "userId": "USR-ADMIN-1",
+      "userName": "Administrator CBT MA Sirajul Huda",
+      "action": "DELETE_SUBJECT",
+      "details": "Menghapus mata pelajaran ID: SUBJ-FIQ-10",
+      "severity": "warning"
+    },
+    {
+      "id": "LOG-u81pwol",
+      "timestamp": "2026-10-31T21:59:24.769Z",
+      "userId": "USR-ADMIN-1",
+      "userName": "Administrator CBT MA Sirajul Huda",
+      "action": "UPDATE_EXAM",
+      "details": "Menyimpan jadwal ujian: Ujian Penilaian Tengah Semester - Al-Qur'an Hadis (2026-10-30 08:00-09:30)",
+      "severity": "info"
     }
   ],
-  "deletedIds": {},
-  "updatedAt": "2026-10-30T12:22:46.682Z"
+  "deletedIds": {
+    "SUBJ-FIQ-10": true,
+    "subj_q:SUBJ-FIQ-10": true,
+    "EXAM-FIQ-PAS1": true,
+    "Q-FIQ-01": true,
+    "Q-FIQ-02": true,
+    "Q-FIQ-03": true,
+    "Q-FIQ-04": true,
+    "Q-FIQ-05": true,
+    "Q-FIQ-06": true,
+    "Q-FIQ-07": true,
+    "Q-FIQ-08": true,
+    "Q-FIQ-09": true,
+    "Q-FIQ-10": true
+  },
+  "updatedAt": "2026-11-01T01:26:50.000Z"
 }
